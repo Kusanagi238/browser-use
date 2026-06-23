@@ -326,9 +326,7 @@ class BrowserSession(BaseModel):
 		assert chrome_process.is_running(), 'Chrome process is not running'
 		args = chrome_process.cmdline()
 		debug_port = next((arg for arg in args if arg.startswith('--remote-debugging-port=')), '').split('=')[-1].strip()
-		assert debug_port, (
-			f'Could not find --remote-debugging-port=... to connect to in browser launch args: browser_pid={self.browser_pid} {args}'
-		)
+		assert debug_port, f'Could not find --remote-debugging-port=... to connect to in browser launch args: browser_pid={self.browser_pid} {args}'
 		# we could automatically relaunch the browser process with that arg added here, but they may have tabs open they dont want to lose
 		self.cdp_url = self.cdp_url or f'http://localhost:{debug_port}/'
 		logger.info(f'🌎 Connecting to existing local browser process: browser_pid={self.browser_pid} on {self.cdp_url}')
@@ -441,16 +439,16 @@ class BrowserSession(BaseModel):
 
 		if self.browser:
 			connection_method = 'WSS' if self.wss_url else 'CDP' if (self.cdp_url and not self.browser_pid) else 'Local'
-			assert self.browser.is_connected(), (
-				f'Browser is not connected, did the browser process crash or get killed? (connection method: {connection_method})'
-			)
+			assert (
+				self.browser.is_connected()
+			), f'Browser is not connected, did the browser process crash or get killed? (connection method: {connection_method})'
 			logger.debug(
 				f'🌎 {connection_method} browser connected: v{self.browser.version} {self.cdp_url or self.wss_url or self.browser_profile.executable_path or "(playwright)"}'
 			)
 
-		assert self.browser_context, (
-			f'Failed to create a playwright BrowserContext {self.browser_context} for browser={self.browser}'
-		)
+		assert (
+			self.browser_context
+		), f'Failed to create a playwright BrowserContext {self.browser_context} for browser={self.browser}'
 
 	# async def _fork_locked_user_data_dir(self) -> None:
 	# 	"""Fork an in-use user_data_dir by cloning it to a new location to allow a second browser to use it"""
@@ -1932,10 +1930,10 @@ class BrowserSession(BaseModel):
 		- Check if it's a label pointing to a file input
 		- Recursively search children for file inputs
 		- Check siblings for file inputs
-		
+
 		Args:
 			index: The index of the candidate element (could be a file input, label, or parent element)
-			
+
 		Returns:
 			The DOM element for the file input if found, None otherwise
 		"""
@@ -1943,12 +1941,12 @@ class BrowserSession(BaseModel):
 			selector_map = await self.get_selector_map()
 			if index not in selector_map:
 				return None
-				
+
 			candidate_element = selector_map[index]
-			
+
 			def is_file_input(node: DOMElementNode) -> bool:
 				return isinstance(node, DOMElementNode) and node.tag_name == 'input' and node.attributes.get('type') == 'file'
-			
+
 			def find_element_by_id(node: DOMElementNode, element_id: str) -> DOMElementNode | None:
 				if isinstance(node, DOMElementNode):
 					if node.attributes.get('id') == element_id:
@@ -1958,22 +1956,24 @@ class BrowserSession(BaseModel):
 						if result:
 							return result
 				return None
-			
+
 			def get_root(node: DOMElementNode) -> DOMElementNode:
 				root = node
 				while root.parent:
 					root = root.parent
 				return root
-			
+
 			# Recursively search for file input in node and its children
-			def find_file_input_recursive(node: DOMElementNode, max_depth: int = 3, current_depth: int = 0) -> DOMElementNode | None:
+			def find_file_input_recursive(
+				node: DOMElementNode, max_depth: int = 3, current_depth: int = 0
+			) -> DOMElementNode | None:
 				if current_depth > max_depth or not isinstance(node, DOMElementNode):
 					return None
-				
+
 				# Check current element
 				if is_file_input(node):
 					return node
-				
+
 				# Recursively check children
 				if node.children and current_depth < max_depth:
 					for child in node.children:
@@ -1982,25 +1982,25 @@ class BrowserSession(BaseModel):
 							if result:
 								return result
 				return None
-			
+
 			# Check if current element is a file input
 			if is_file_input(candidate_element):
 				return candidate_element
-				
+
 			# Check if it's a label pointing to a file input
 			if candidate_element.tag_name == 'label' and candidate_element.attributes.get('for'):
 				input_id = candidate_element.attributes.get('for')
 				root_element = get_root(candidate_element)
-				
+
 				target_input = find_element_by_id(root_element, input_id)
 				if target_input and is_file_input(target_input):
 					return target_input
-					
+
 			# Recursively check children
 			child_result = find_file_input_recursive(candidate_element)
 			if child_result:
 				return child_result
-				
+
 			# Check siblings
 			if candidate_element.parent:
 				for sibling in candidate_element.parent.children:
@@ -2008,9 +2008,9 @@ class BrowserSession(BaseModel):
 						if is_file_input(sibling):
 							return sibling
 			return None
-			
+
 		except Exception as e:
-			logger.debug(f"Error in find_file_upload_element_by_index: {e}")
+			logger.debug(f'Error in find_file_upload_element_by_index: {e}')
 			return None
 
 	@require_initialization
