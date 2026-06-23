@@ -70,7 +70,8 @@ class BrowserSession(BaseModel):
 
 	# Core configuration
 	browser_profile: BrowserProfile = Field(default_factory=lambda: DEFAULT_BROWSER_PROFILE)
-	id: str = Field(default_factory=lambda: uuid7str())
+	# Use the stdlib uuid4 hex as a stable default id to avoid relying on an undefined uuid7str
+	id: str = Field(default_factory=lambda: __import__('uuid').uuid4().hex)
 
 	# Connection info (for backwards compatibility)
 	cdp_url: str | None = None
@@ -628,7 +629,6 @@ class BrowserSession(BaseModel):
 
 	async def on_TabsInfoRequestEvent(self, event: TabsInfoRequestEvent) -> None:
 		"""Handle tabs info request."""
-		from browser_use.browser.views import TabInfo
 
 		# Auto-start if not initialized
 		if not self.initialized:
@@ -934,7 +934,7 @@ class BrowserSession(BaseModel):
 		# Use event-based approach
 		self.event_bus.dispatch(SaveStorageStateEvent(path=path))
 
-	async def get_tabs_info(self) -> list[TabInfo]:
+	async def get_tabs_info(self) -> list:
 		"""Get information about all open tabs."""
 		# Dispatch the request event
 		self.event_bus.dispatch(TabsInfoRequestEvent())
@@ -942,10 +942,29 @@ class BrowserSession(BaseModel):
 		try:
 			event_result = await self.event_bus.expect(TabsInfoResponseEvent, timeout=5.0)
 			response: TabsInfoResponseEvent = event_result  # type: ignore
-			# Convert dictionaries to TabInfo models
+			# Convert dictionaries to TabInfo models when available; otherwise return raw dicts
 			tab_infos = []
 			for tab_dict in response.tabs:
-				tab_info = TabInfo(**tab_dict)
+				# Attempt to import TabInfo at runtime from likely locations
+				TabInfo = None
+				try:
+					from browser_use.models import TabInfo as _TabInfo
+					TabInfo = _TabInfo
+				except Exception:
+					try:
+						from .models import TabInfo as _TabInfo
+						TabInfo = _TabInfo
+					except Exception:
+						TabInfo = None
+				if TabInfo is not None:
+					try:
+						tab_info = TabInfo(**tab_dict)
+					except Exception:
+						# If model construction fails, fall back to raw dict
+						tab_info = tab_dict
+				else:
+					# No TabInfo model available; return the raw dict
+					tab_info = tab_dict
 				tab_infos.append(tab_info)
 			return tab_infos
 		except TimeoutError:

@@ -43,7 +43,7 @@ class StorageStateWatchdog(BaseWatchdog):
 
 	# Private state
 	_monitoring_task: asyncio.Task | None = PrivateAttr(default=None)
-	_last_cookie_state: list[Cookie] = PrivateAttr(default_factory=list)
+	_last_cookie_state: list[dict] = PrivateAttr(default_factory=list)
 	_save_lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
 
 	async def on_BrowserStartedEvent(self, event: BrowserStartedEvent) -> None:
@@ -260,7 +260,8 @@ class StorageStateWatchdog(BaseWatchdog):
 
 			# Apply cookies if present
 			if 'cookies' in storage and storage['cookies']:
-				await self.browser_session._browser_context.add_cookies(storage['cookies'])
+				# Use this class helper to normalize storage-state cookie dicts before adding
+				await self.add_cookies(storage['cookies'])
 				self._last_cookie_state = storage['cookies'].copy()
 				logger.info(f'[StorageStateWatchdog] Added {len(storage["cookies"])} cookies from storage state')
 
@@ -327,15 +328,15 @@ class StorageStateWatchdog(BaseWatchdog):
 			logger.error(f'[StorageStateWatchdog] Failed to get cookies: {e}')
 			return []
 
-	async def add_cookies(self, cookies: list[Cookie]) -> None:
+	async def add_cookies(self, cookies: list[dict]) -> None:
 		"""Add cookies to browser context."""
 		if not self.browser_session._browser_context:
 			logger.warning('[StorageStateWatchdog] No browser context available for adding cookies')
 			return
 
 		try:
-			# Convert Cookie objects to format required by add_cookies()
-			# add_cookies() requires 'url' field that Cookie doesn't have
+			# Convert storage-state cookie dicts to format required by browser_context.add_cookies()
+			# add_cookies() requires either 'url' or domain/path combination; build a safe URL if missing
 			cookie_params = []
 			for cookie in cookies:
 				# Build the required URL from cookie domain and path
