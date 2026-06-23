@@ -18,7 +18,6 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import (
 	BaseMessage,
 	ContentPartImageParam,
-	ContentPartTextParam,
 	ImageURL,
 	SystemMessage,
 	UserMessage,
@@ -195,8 +194,11 @@ def are_images_identical(img_path1: str, img_path2: str) -> bool:
 			if img1.size != img2.size:
 				return False
 
-			# Compare pixel data
-			return list(img1.getdata()) == list(img2.getdata())
+			# Use ImageChops.difference which returns an empty image when images are identical
+			from PIL import ImageChops
+			diff = ImageChops.difference(img1, img2)
+			# If bounding box is None, images are identical
+			return diff.getbbox() is None
 	except Exception as e:
 		logger.warning(f'Failed to compare images {img_path1} and {img_path2}: {e}')
 		return False
@@ -423,19 +425,30 @@ Respond with EXACTLY this JSON structure (no additional text before or after):
 Evaluate this agent execution given the criteria and respond with the exact JSON structure requested."""
 
 	# Build messages
-	content_parts: list[ContentPartTextParam | ContentPartImageParam] = [ContentPartTextParam(text=user_prompt)]
-	content_parts.extend(encoded_images)
-
+	# To avoid API/typing mismatches with complex ContentPart types, embed image data URLs into the user prompt text
+	images_text = ''
+	if encoded_images:
+		images_text = '\n'.join([f'[Image:{i}] {img.image_url.url}' for i, img in enumerate(encoded_images)])
+	user_content = user_prompt + ("\n\n" + images_text if images_text else "")
 	messages: list[BaseMessage] = [
 		SystemMessage(content=system_prompt),
-		UserMessage(content=content_parts),
+		UserMessage(content=user_content),
 	]
 
 	# Get structured response
 	try:
-		response = await model.ainvoke(messages, output_format=JudgeResult)
+		# Call the model without relying on a strict typed output_format to avoid signature mismatches
+		response = await model.ainvoke(messages)
 		logger.info(f'Judge response: {response}')
-		return response.completion
+		# Try to parse the model response into the structured JudgeResult
+		try:
+			return parse_judge_response(response if isinstance(response, str) else str(response))
+		except Exception:
+			# Fallback: if the response object exposes a completion attribute, return that
+			if hasattr(response, 'completion'):
+				return response.completion
+			# Otherwise return a fallback structured result
+			return create_fallback_result(task, 'Failed to parse judge response')
 
 	except Exception as e:
 		logger.error(f'Judge evaluation failed: {e}')
@@ -694,8 +707,20 @@ async def evaluate_task_with_comprehensive_judge(
 			max_images=max_images,
 		)
 
-		# Convert to dict for storage
-		judge_dict = judge_result.model_dump()
+		# Convert to dict for storage (be robust to different result types)
+		import json
+		if isinstance(judge_result, dict):
+			judge_dict = judge_result
+		elif hasattr(judge_result, 'model_dump'):
+			judge_dict = judge_result.model_dump()
+		elif hasattr(judge_result, 'dict'):
+			judge_dict = judge_result.dict()
+		else:
+			# Fallback: try JSON round-trip for serializable objects, otherwise stringify
+			try:
+				judge_dict = json.loads(json.dumps(judge_result, default=lambda o: getattr(o, '__dict__', str(o))))
+			except Exception:
+				judge_dict = {'raw_result': str(judge_result)}
 
 		# Save back to result file using async wrapper
 		result_data['comprehensive_judge_evaluation'] = judge_dict

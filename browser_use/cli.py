@@ -1281,14 +1281,20 @@ async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
 
 	except Exception as e:
 		error_msg = str(e)
+		# Safely determine model information only if 'llm' exists
+		model = None
+		model_provider = None
+		if 'llm' in locals() and llm is not None:
+			model = getattr(llm, 'model', None)
+			model_provider = llm.__class__.__name__
 		# Capture telemetry for error
 		telemetry.capture(
 			CLITelemetryEvent(
 				version=get_browser_use_version(),
 				action='error',
 				mode='oneshot',
-				model=llm.model if hasattr(llm, 'model') else None,
-				model_provider=llm.__class__.__name__ if llm and 'llm' in locals() else None,
+				model=model,
+				model_provider=model_provider,
 				duration_seconds=time.time() - start_time,
 				error_message=error_msg,
 			)

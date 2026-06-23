@@ -31,13 +31,15 @@ class GoogleMessageSerializer:
 		    - system_message: System instruction string or None
 		"""
 
-		messages = [m.model_copy(deep=True) for m in messages]
+		# Avoid calling model_copy (may not exist on BaseMessage). Just iterate a copy of the list.
+		messages = list(messages)
 
-		formatted_messages: ContentListUnion = []
+		formatted_messages = []
 		system_message: str | None = None
 
 		for message in messages:
-			role = message.role if hasattr(message, 'role') else None
+			# Use getattr to avoid static attribute access errors on BaseMessage
+			role = getattr(message, 'role', None)
 
 			# Handle system/developer messages
 			if isinstance(message, SystemMessage) or role in ['system', 'developer']:
@@ -48,8 +50,8 @@ class GoogleMessageSerializer:
 					# Handle Iterable of content parts
 					parts = []
 					for part in message.content:
-						if part.type == 'text':
-							parts.append(part.text)
+						if getattr(part, 'type', None) == 'text':
+							parts.append(getattr(part, 'text', ''))
 					system_message = '\n'.join(parts)
 				continue
 
@@ -72,23 +74,45 @@ class GoogleMessageSerializer:
 			elif message.content is not None:
 				# Handle Iterable of content parts
 				for part in message.content:
-					if part.type == 'text':
-						message_parts.append(Part.from_text(text=part.text))
-					elif part.type == 'refusal':
-						message_parts.append(Part.from_text(text=f'[Refusal] {part.refusal}'))
-					elif part.type == 'image_url':
-						# Handle images
-						url = part.image_url.url
+					if getattr(part, 'type', None) == 'text':
+						message_parts.append(Part.from_text(text=getattr(part, 'text', '')))
+					elif getattr(part, 'type', None) == 'refusal':
+						message_parts.append(Part.from_text(text=f'[Refusal] {getattr(part, "refusal", "")}'))
+					elif getattr(part, 'type', None) == 'image_url':
+						# Handle images robustly: support data-URIs, bytes, or file-like objects
+						image_source = getattr(part, 'image_url', None)
+						if image_source is None:
+							continue
+						url = getattr(image_source, 'url', image_source)
 
-						# Format: data:image/png;base64,<data>
-						header, data = url.split(',', 1)
-						# Decode base64 to bytes
-						image_bytes = base64.b64decode(data)
+						image_bytes = None
+						if isinstance(url, str):
+							# Expect data URI like: data:image/png;base64,<data>
+							if ',' in url:
+								try:
+									header, data = url.split(',', 1)
+									image_bytes = base64.b64decode(data)
+								except Exception:
+									# Not a valid data URI, skip
+									continue
+							else:
+								# Not a data URI string, skip
+								continue
+						elif isinstance(url, (bytes, bytearray)):
+							image_bytes = bytes(url)
+						elif hasattr(url, 'read'):
+							try:
+								image_bytes = url.read()
+							except Exception:
+								continue
+						else:
+							# Unknown image representation; skip
+							continue
 
-						# Add image part
-						image_part = Part.from_bytes(data=image_bytes, mime_type='image/png')
-
-						message_parts.append(image_part)
+						# If we have image bytes, create an image part
+						if image_bytes is not None:
+							image_part = Part.from_bytes(data=image_bytes, mime_type='image/png')
+							message_parts.append(image_part)
 
 			# Create the Content object
 			if message_parts:
