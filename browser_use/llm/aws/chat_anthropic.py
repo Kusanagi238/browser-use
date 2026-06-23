@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 from anthropic import (
-	NOT_GIVEN,
 	APIConnectionError,
 	APIStatusError,
 	AsyncAnthropicBedrock,
@@ -157,12 +156,14 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 		try:
 			if output_format is None:
 				# Normal completion without structured output
-				response = await self.get_client().messages.create(
-					model=self.model,
-					messages=anthropic_messages,
-					system=system_prompt or NOT_GIVEN,
-					**self._get_client_params_for_invoke(),
-				)
+				params = dict(self._get_client_params_for_invoke())
+				# required parameters for the call
+				params.update({'model': self.model, 'messages': anthropic_messages})
+				# only include 'system' if there is a system prompt to avoid passing NOT_GIVEN/NotGiven
+				if system_prompt is not None:
+					params['system'] = system_prompt
+
+				response = await self.get_client().messages.create(**params)
 
 				usage = self._get_usage(response)
 
@@ -199,14 +200,13 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 				# Force the model to use this tool
 				tool_choice = ToolChoiceToolParam(type='tool', name=tool_name)
 
-				response = await self.get_client().messages.create(
-					model=self.model,
-					messages=anthropic_messages,
-					tools=[tool],
-					system=system_prompt or NOT_GIVEN,
-					tool_choice=tool_choice,
-					**self._get_client_params_for_invoke(),
-				)
+				# Build params and only include optional keys when present to satisfy type checker
+				params = dict(self._get_client_params_for_invoke())
+				params.update({'model': self.model, 'messages': anthropic_messages, 'tools': [tool], 'tool_choice': tool_choice})
+				if system_prompt is not None:
+					params['system'] = system_prompt
+
+				response = await self.get_client().messages.create(**params)
 
 				usage = self._get_usage(response)
 

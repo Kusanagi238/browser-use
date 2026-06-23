@@ -70,7 +70,8 @@ class ChatAnthropic(BaseChatModel):
 		# Create client_params dict with non-None values and non-NotGiven values
 		client_params = {}
 		for k, v in base_params.items():
-			if v is not None and v is not NotGiven():
+			# Compare against the NOT_GIVEN sentinel (do not instantiate NotGiven() here)
+			if v is not None and v is not NOT_GIVEN:
 				client_params[k] = v
 
 		return client_params
@@ -130,11 +131,14 @@ class ChatAnthropic(BaseChatModel):
 		try:
 			if output_format is None:
 				# Normal completion without structured output
+				params = self._get_client_params_for_invoke()
+				# Only include the system param if a system prompt was actually provided
+				if system_prompt is not None:
+					params['system'] = system_prompt
 				response = await self.get_client().messages.create(
 					model=self.model,
 					messages=anthropic_messages,
-					system=system_prompt or NOT_GIVEN,
-					**self._get_client_params_for_invoke(),
+					**params,
 				)
 
 				usage = self._get_usage(response)
@@ -172,13 +176,17 @@ class ChatAnthropic(BaseChatModel):
 				# Force the model to use this tool
 				tool_choice = ToolChoiceToolParam(type='tool', name=tool_name)
 
+				# Build params and only include optional fields when provided
+				params = self._get_client_params_for_invoke()
+				params['tools'] = [tool]
+				params['tool_choice'] = tool_choice
+				if system_prompt is not None:
+					params['system'] = system_prompt
+
 				response = await self.get_client().messages.create(
 					model=self.model,
 					messages=anthropic_messages,
-					tools=[tool],
-					system=system_prompt or NOT_GIVEN,
-					tool_choice=tool_choice,
-					**self._get_client_params_for_invoke(),
+					**params,
 				)
 
 				usage = self._get_usage(response)
