@@ -67,10 +67,12 @@ class ChatAnthropic(BaseChatModel):
 			'default_query': self.default_query,
 		}
 
-		# Create client_params dict with non-None values and non-NotGiven values
+		# Create client_params dict with non-None values and non-NotGiven sentinel values
 		client_params = {}
 		for k, v in base_params.items():
-			if v is not None and v is not NotGiven():
+			# Compare against the canonical NOT_GIVEN sentinel rather than constructing a
+			# new NotGiven() instance each time (which would make identity checks fail).
+			if v is not None and v is not NOT_GIVEN:
 				client_params[k] = v
 
 		return client_params
@@ -128,9 +130,12 @@ class ChatAnthropic(BaseChatModel):
 		anthropic_messages, system_prompt = AnthropicMessageSerializer.serialize_messages(messages)
 
 		try:
+			# Use a loosely-typed client reference to avoid strict static overload checks
+			client: Any = self.get_client().messages
+
 			if output_format is None:
 				# Normal completion without structured output
-				response = await self.get_client().messages.create(
+				response = await client.create(
 					model=self.model,
 					messages=anthropic_messages,
 					system=system_prompt or NOT_GIVEN,
@@ -172,7 +177,7 @@ class ChatAnthropic(BaseChatModel):
 				# Force the model to use this tool
 				tool_choice = ToolChoiceToolParam(type='tool', name=tool_name)
 
-				response = await self.get_client().messages.create(
+				response = await client.create(
 					model=self.model,
 					messages=anthropic_messages,
 					tools=[tool],
@@ -187,14 +192,23 @@ class ChatAnthropic(BaseChatModel):
 				for content_block in response.content:
 					if hasattr(content_block, 'type') and content_block.type == 'tool_use':
 						# Parse the tool input as the structured output
+						# Normalize the input to a JSON-native Python object if it's a string
+						input_data = content_block.input
+						if isinstance(input_data, str):
+							try:
+								input_data = json.loads(input_data)
+							except Exception:
+								# If it's not valid JSON, leave as the raw string
+								pass
 						try:
-							return ChatInvokeCompletion(completion=output_format.model_validate(content_block.input), usage=usage)
+							# Use a type-ignore to suppress static type complaint about the content type
+							return ChatInvokeCompletion(completion=output_format.model_validate(input_data), usage=usage)  # type: ignore[arg-type]
 						except Exception as e:
-							# If validation fails, try to parse it as JSON first
+							# If validation fails and the original input was a string, try parsing JSON and validating again
 							if isinstance(content_block.input, str):
 								data = json.loads(content_block.input)
 								return ChatInvokeCompletion(
-									completion=output_format.model_validate(data),
+									completion=output_format.model_validate(data),  # type: ignore[arg-type]
 									usage=usage,
 								)
 							raise e

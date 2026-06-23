@@ -193,8 +193,9 @@ def are_images_identical(img_path1: str, img_path2: str) -> bool:
 			if img1.size != img2.size:
 				return False
 
-			# Compare pixel data
-			return list(img1.getdata()) == list(img2.getdata())
+			# Compare raw bytes of the images for a reliable equality check
+			# Using tobytes() avoids typing issues with ImagingCore and is fast
+			return img1.tobytes() == img2.tobytes()
 	except Exception as e:
 		logger.warning(f'Failed to compare images {img_path1} and {img_path2}: {e}')
 		return False
@@ -580,7 +581,18 @@ async def evaluate_task_with_comprehensive_judge(task_folder: Path, model: BaseC
 		)
 
 		# Convert to dict for storage
-		judge_dict = judge_result.model_dump()
+		if hasattr(judge_result, 'model_dump'):
+			# pydantic-like objects
+			judge_dict = judge_result.model_dump()
+		elif hasattr(judge_result, '__dict__'):
+			# Plain dataclass / simple objects
+			judge_dict = {k: v for k, v in judge_result.__dict__.items()}
+		else:
+			# Fallback: try to coerce to dict or stringify
+			try:
+				judge_dict = dict(judge_result)
+			except Exception:
+				judge_dict = {'value': str(judge_result)}
 
 		# Save back to result file using async wrapper
 		result_data['comprehensive_judge_evaluation'] = judge_dict

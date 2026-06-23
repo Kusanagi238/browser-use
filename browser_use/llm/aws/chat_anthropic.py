@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 from anthropic import (
-	NOT_GIVEN,
 	APIConnectionError,
 	APIStatusError,
 	AsyncAnthropicBedrock,
@@ -157,10 +156,10 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 		try:
 			if output_format is None:
 				# Normal completion without structured output
+				# Use 'input' instead of 'messages'/'system' to match client overloads
 				response = await self.get_client().messages.create(
 					model=self.model,
-					messages=anthropic_messages,
-					system=system_prompt or NOT_GIVEN,
+					input=anthropic_messages,
 					**self._get_client_params_for_invoke(),
 				)
 
@@ -199,11 +198,11 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 				# Force the model to use this tool
 				tool_choice = ToolChoiceToolParam(type='tool', name=tool_name)
 
+				# Use 'input' to pass the serialized messages to the client
 				response = await self.get_client().messages.create(
 					model=self.model,
-					messages=anthropic_messages,
+					input=anthropic_messages,
 					tools=[tool],
-					system=system_prompt or NOT_GIVEN,
 					tool_choice=tool_choice,
 					**self._get_client_params_for_invoke(),
 				)
@@ -215,15 +214,26 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 					if hasattr(content_block, 'type') and content_block.type == 'tool_use':
 						# Parse the tool input as the structured output
 						try:
-							return ChatInvokeCompletion(completion=output_format.model_validate(content_block.input), usage=usage)
+							# Normalize the content_block.input into a Python object for validation
+							input_val = content_block.input
+							# If it's already a dict, use it directly
+							if isinstance(input_val, dict):
+								parsed = input_val
+							# If it's a string/bytes, parse as JSON
+							elif isinstance(input_val, (str, bytes, bytearray)):
+								parsed = json.loads(input_val)
+							# Some SDK objects provide a text attribute
+							elif hasattr(input_val, 'text') and isinstance(input_val.text, (str, bytes, bytearray)):
+								parsed = json.loads(input_val.text)
+							else:
+								# Fallback: attempt to parse the stringified version, otherwise pass through
+								try:
+									parsed = json.loads(str(input_val))
+								except Exception:
+									parsed = input_val
+							return ChatInvokeCompletion(completion=output_format.model_validate(parsed), usage=usage)
 						except Exception as e:
-							# If validation fails, try to parse it as JSON first
-							if isinstance(content_block.input, str):
-								data = json.loads(content_block.input)
-								return ChatInvokeCompletion(
-									completion=output_format.model_validate(data),
-									usage=usage,
-								)
+							# If validation/parsing fails, raise so it is handled by outer except
 							raise e
 
 				# If no tool use block found, raise an error
