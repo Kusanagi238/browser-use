@@ -27,14 +27,14 @@ from browser_use.controller.views import (
 class TestControllerIntegration:
 	"""Integration tests for Controller using actual browser instances."""
 
-	@pytest.fixture(scope='module')
+	@pytest.fixture
 	def event_loop(self):
 		"""Create and provide an event loop for async tests."""
 		loop = asyncio.get_event_loop_policy().new_event_loop()
 		yield loop
 		loop.close()
 
-	@pytest.fixture(scope='module')
+	@pytest.fixture
 	async def browser(self, event_loop):
 		"""Create and provide a Browser instance with security disabled."""
 		browser_instance = Browser(

@@ -1,19 +1,9 @@
 name: test
 
-on:
-  push:
-    branches:
-      - main
-      - stable
-      - 'releases/**'
-    tags:
-      - '*'
-  pull_request:
-  workflow_dispatch:
-    
+on: push
 jobs:
   tests:
-    name: ${{matrix.test}} 
+    name: ${{matrix.test}}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -43,22 +33,23 @@ jobs:
         - test_tab_management
         - test_sensitive_data
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-          activate-environment: true
+    - uses: actions/checkout@v4
+    - uses: astral-sh/setup-uv@v6
+      with:
+        enable-cache: true
+        activate-environment: true
 
-      - name: Detect installed Playwright or Patchright version
-        run: echo "PLAYWRIGHT_VERSION=$(grep -oP 'patchright>=\K[0-9.]+' pyproject.toml)" >> $GITHUB_ENV
+    - name: Detect installed Playwright or Patchright version
+      run: echo "PLAYWRIGHT_VERSION=$(grep -oP 'patchright>=\K[0-9.]+' pyproject.toml)"
+        >> $GITHUB_ENV
 
-      - name: Cache playwright binaries
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ env.PLAYWRIGHT_VERSION }}
+    - name: Cache playwright binaries
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ env.PLAYWRIGHT_VERSION }}
 
-      - run: uv run patchright install --no-shell --with-deps chromium
+    - run: uv run patchright install --no-shell --with-deps chromium
 
-      - run: uv run --with=dotenv pytest tests/${{ matrix.test }}.py
+    - run: uv run --with=dotenv pytest tests/${{ matrix.test }}.py
