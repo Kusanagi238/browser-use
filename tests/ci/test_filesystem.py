@@ -271,7 +271,9 @@ class TestFileSystem:
 		result = await fs.write_file('new_file.txt', 'New file content')
 		assert result == 'Data written to file new_file.txt successfully.'
 		assert 'new_file.txt' in fs.files
-		assert fs.get_file('new_file.txt').content == 'New file content'
+		file_obj = fs.get_file('new_file.txt')
+		assert file_obj is not None
+		assert file_obj.content == 'New file content'
 
 		# Write with invalid filename
 		result = await fs.write_file('invalid@name.md', 'content')
@@ -293,7 +295,9 @@ class TestFileSystem:
 		assert result == 'Data appended to file test.md successfully.'
 
 		# Verify content was appended
-		content = fs.get_file('test.md').content
+		file_obj = fs.get_file('test.md')
+		assert file_obj is not None
+		content = file_obj.content
 		assert content == '# Title\n## Section 1'
 
 		# Append to non-existent file
@@ -321,8 +325,12 @@ class TestFileSystem:
 		assert fs.extracted_content_count == 2
 
 		# Verify content
-		content1 = fs.get_file('extracted_content_0.md').content
-		content2 = fs.get_file('extracted_content_1.md').content
+		file_obj1 = fs.get_file('extracted_content_0.md')
+		assert file_obj1 is not None
+		content1 = file_obj1.content
+		file_obj2 = fs.get_file('extracted_content_1.md')
+		assert file_obj2 is not None
+		content2 = file_obj2.content
 		assert content1 == 'First extracted content'
 		assert content2 == 'Second extracted content'
 
@@ -379,7 +387,9 @@ class TestFileSystem:
 		assert todo_content == ''
 
 		# Add content to todo
-		fs.get_file('todo.md').update_content('- [ ] Task 1\n- [ ] Task 2')
+		file_obj = fs.get_file('todo.md')
+		assert file_obj is not None
+		file_obj.update_content('- [ ] Task 1\n- [ ] Task 2')
 		todo_content = fs.get_todo_contents()
 		assert '- [ ] Task 1' in todo_content
 
@@ -428,10 +438,9 @@ class TestFileSystem:
 		file_obj = fs2.get_file('custom.txt')
 		assert file_obj is not None
 		assert file_obj.content == 'Custom content'
-		assert (
-			fs2.get_file('extracted_content_0.md').content is not None
-			and fs2.get_file('extracted_content_0.md').content == 'Extracted data'
-		)
+		file_obj = fs2.get_file('extracted_content_0.md')
+		assert file_obj is not None
+		assert file_obj.content == 'Extracted data'
 
 		# Verify files exist on disk
 		assert (fs2.data_dir / 'results.md').exists()

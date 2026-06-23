@@ -43,7 +43,7 @@ class ChatAnthropic(BaseChatModel):
 	api_key: str | None = None
 	auth_token: str | None = None
 	base_url: str | httpx.URL | None = None
-	timeout: float | Timeout | None | NotGiven = NotGiven()
+	timeout: float | Timeout | None | NotGiven = NOT_GIVEN
 	max_retries: int = 2
 	default_headers: Mapping[str, str] | None = None
 	default_query: Mapping[str, object] | None = None
@@ -69,7 +69,8 @@ class ChatAnthropic(BaseChatModel):
 		# Create client_params dict with non-None values and non-NotGiven values
 		client_params = {}
 		for k, v in base_params.items():
-			if v is not None and v is not NotGiven():
+			# Compare against the singleton sentinel NOT_GIVEN rather than creating a new NotGiven()
+			if v is not None and v is not NOT_GIVEN:
 				client_params[k] = v
 
 		return client_params
@@ -129,12 +130,10 @@ class ChatAnthropic(BaseChatModel):
 		try:
 			if output_format is None:
 				# Normal completion without structured output
-				response = await self.get_client().messages.create(
-					model=self.model,
-					messages=anthropic_messages,
-					system=system_prompt or NOT_GIVEN,
-					**self._get_client_params_for_invoke(),
-				)
+				client_kwargs = {**self._get_client_params_for_invoke(), 'model': self.model, 'messages': anthropic_messages}
+				if system_prompt:
+					client_kwargs['system'] = system_prompt
+				response = await self.get_client().messages.create(**client_kwargs)
 
 				usage = self._get_usage(response)
 
@@ -171,14 +170,11 @@ class ChatAnthropic(BaseChatModel):
 				# Force the model to use this tool
 				tool_choice = ToolChoiceToolParam(type='tool', name=tool_name)
 
-				response = await self.get_client().messages.create(
-					model=self.model,
-					messages=anthropic_messages,
-					tools=[tool],
-					system=system_prompt or NOT_GIVEN,
-					tool_choice=tool_choice,
-					**self._get_client_params_for_invoke(),
-				)
+				client_kwargs = {**self._get_client_params_for_invoke(), 'model': self.model, 'messages': anthropic_messages, 'tools': [tool]}
+				if system_prompt:
+					client_kwargs['system'] = system_prompt
+				client_kwargs['tool_choice'] = tool_choice
+				response = await self.get_client().messages.create(**client_kwargs)
 
 				usage = self._get_usage(response)
 

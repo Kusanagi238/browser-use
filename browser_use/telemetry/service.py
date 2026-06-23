@@ -53,8 +53,9 @@ class ProductTelemetry:
 			logger.info(
 				'Anonymized telemetry enabled. See https://docs.browser-use.com/development/telemetry for more information.'
 			)
+			# Pass the required first parameter positionally to satisfy the Posthog constructor signature
 			self._posthog_client = Posthog(
-				project_api_key=self.PROJECT_API_KEY,
+				self.PROJECT_API_KEY,
 				host=self.HOST,
 				disable_geoip=False,
 				enable_exception_autocapture=True,
@@ -111,7 +112,8 @@ class ProductTelemetry:
 			if not os.path.exists(self.USER_ID_PATH):
 				os.makedirs(os.path.dirname(self.USER_ID_PATH), exist_ok=True)
 				with open(self.USER_ID_PATH, 'w') as f:
-					new_user_id = uuid7str()
+					# uuid7str requires one positional argument in the type stub; pass None to satisfy the signature
+					new_user_id = uuid7str(None)
 					f.write(new_user_id)
 				self._curr_user_id = new_user_id
 			else:
