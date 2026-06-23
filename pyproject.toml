@@ -4,7 +4,7 @@ description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
 version = "0.3.2"
 readme = "README.md"
-requires-python = ">=3.11,<4.0"
+requires-python = ">=3.11,<3.13"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -25,7 +25,7 @@ dependencies = [
     "langchain>=0.3.25",
     "markdownify==1.1.0",
     "mem0ai>=0.1.106",
-    "patchright>=1.52.5",
+    "patchright>=1.52.5; not (sys_platform == 'win32' and platform_machine == 'x86_64')",
     "playwright>=1.52.0",
     "posthog>=3.7.0",
     "psutil>=7.0.0",
@@ -156,16 +156,39 @@ log_level = "DEBUG"
 allow-direct-references = true
 
 [tool.uv]
+lock-file = "uv.lock"
 required-environments = [
     "sys_platform == 'darwin' and platform_machine == 'arm64'",
     "sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
     "sys_platform == 'linux' and platform_machine == 'aarch64'",
     # "sys_platform == 'linux' and platform_machine == 'arm64'",  # no pytorch wheels available yet
-    "sys_platform == 'win32' and platform_machine == 'x86_64'",
+    # "sys_platform == 'win32' and platform_machine == 'x86_64'",  # excluded due to patchright wheel availability
     # "sys_platform == 'win32' and platform_machine == 'arm64'",  # no pytorch wheels available yet
 ]
-dev-dependencies = [
+# dev-dependencies moved from [tool.uv] to the standardized PEP 621 dependency-groups table below
+# dev-dependencies = [
+#     "ruff>=0.11.2",
+#     "tokencost>=0.1.16",
+#     "build>=1.2.2",
+#     "pytest>=8.3.5",
+#     "pytest-asyncio>=1.0.0",
+#     "pytest-httpserver>=1.0.8",
+#     "fastapi>=0.115.8",
+#     "inngest>=0.4.19",
+#     "uvicorn>=0.34.0",
+#     "langchain-fireworks>=0.2.6",
+#     "ipdb>=0.13.13",
+#     "pre-commit>=4.2.0",
+#     "codespell>=2.4.1",
+#     "pyright>=1.1.399",
+#     "ty>=0.0.1a1",
+#     "pytest-xdist>=3.7.0",
+#     # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
+# ]
+
+[project.dependency-groups.dev]
+dependencies = [
     "ruff>=0.11.2",
     "tokencost>=0.1.16",
     "build>=1.2.2",
@@ -182,5 +205,5 @@ dev-dependencies = [
     "pyright>=1.1.399",
     "ty>=0.0.1a1",
     "pytest-xdist>=3.7.0",
-    # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
 ]
+
