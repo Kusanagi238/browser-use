@@ -479,7 +479,6 @@ class Registry(Generic[Context]):
 		Each action model contains only the specific action being used,
 		rather than all actions with most set to None.
 		"""
-		from typing import Union
 
 		# Filter actions based on page if provided:
 		#   if page is None, only include actions with no filters
@@ -532,10 +531,14 @@ class Registry(Generic[Context]):
 
 		# Meaning the length is more than 1
 		else:
-			# Create a Union type using RootModel that properly delegates ActionModel methods
-			union_type = Union[tuple(individual_action_models)]  # type: ignore : Typing doesn't understand that the length is >= 2 (by design)
+			# Keep the individual model types handy (for potential runtime use)
+			_union_model_types = tuple(individual_action_models)
 
-			class ActionModelUnion(RootModel[union_type]):  # type: ignore
+			# Create a wrapper class that preserves the ActionModel type for callers
+			# and delegates behavior to an underlying individual action model instance.
+			# Using RootModel[object] avoids constructing an invalid typing.Union
+			# while inheriting from ActionModel ensures the return type matches.
+			class ActionModelUnion(RootModel[object], ActionModel):
 				"""Union of all available action models that maintains ActionModel interface"""
 
 				def get_index(self) -> int | None:

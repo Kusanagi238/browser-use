@@ -28,7 +28,7 @@ def xdg_cache_home() -> Path:
 	return default
 
 
-@singleton
+@singleton()
 class ProductTelemetry:
 	"""
 	Service for capturing anonymized telemetry data.

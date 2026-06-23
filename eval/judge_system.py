@@ -75,7 +75,6 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import (
 	BaseMessage,
 	ContentPartImageParam,
-	ContentPartTextParam,
 	ImageURL,
 	SystemMessage,
 	UserMessage,
@@ -252,6 +251,8 @@ def prepare_agent_steps(complete_history: list[dict]) -> list[str]:
 def are_images_identical(img_path1: str, img_path2: str) -> bool:
 	"""Check if two images are identical by comparing their content."""
 	try:
+		# Use ImageChops.difference to avoid relying on getdata() iterable typing
+		from PIL import ImageChops
 		with Image.open(img_path1) as img1, Image.open(img_path2) as img2:
 			# Convert to same format for comparison
 			if img1.mode != img2.mode:
@@ -262,8 +263,9 @@ def are_images_identical(img_path1: str, img_path2: str) -> bool:
 			if img1.size != img2.size:
 				return False
 
-			# Compare pixel data
-			return list(img1.getdata()) == list(img2.getdata())
+			# Use difference; if bounding box is None images are identical
+			diff = ImageChops.difference(img1, img2)
+			return diff.getbbox() is None
 	except Exception as e:
 		logger.warning(f'Failed to compare images {img_path1} and {img_path2}: {e}')
 		return False
@@ -460,12 +462,19 @@ Respond with EXACTLY this JSON structure (no additional text):
 Analyze this execution and respond with the exact JSON structure requested."""
 
 	# Build messages
-	content_parts: list[ContentPartTextParam | ContentPartImageParam] = [ContentPartTextParam(text=user_prompt)]
-	content_parts.extend(encoded_images)
+	# Combine text prompt and encoded images into a single string content for compatibility with UserMessage
+	content_text = user_prompt
+	for img in encoded_images:
+		# embed image data URLs inline so the model can reference them
+		try:
+			img_url = img.image_url.url
+		except Exception:
+			img_url = str(img)
+		content_text += "\n\n[IMAGE]\n" + img_url
 
 	messages: list[BaseMessage] = [
 		SystemMessage(content=system_prompt),
-		UserMessage(content=content_parts),
+		UserMessage(content=content_text),
 	]
 
 	# Get structured response
