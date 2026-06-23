@@ -130,7 +130,8 @@ class ChatAnthropic(BaseChatModel):
 		try:
 			if output_format is None:
 				# Normal completion without structured output
-				response = await self.get_client().messages.create(
+				create_fn = getattr(self.get_client().messages, "create")
+				response = await create_fn(
 					model=self.model,
 					messages=anthropic_messages,
 					system=system_prompt or NOT_GIVEN,
@@ -172,7 +173,8 @@ class ChatAnthropic(BaseChatModel):
 				# Force the model to use this tool
 				tool_choice = ToolChoiceToolParam(type='tool', name=tool_name)
 
-				response = await self.get_client().messages.create(
+				create_fn = getattr(self.get_client().messages, "create")
+				response = await create_fn(
 					model=self.model,
 					messages=anthropic_messages,
 					tools=[tool],
@@ -185,19 +187,32 @@ class ChatAnthropic(BaseChatModel):
 
 				# Extract the tool use block
 				for content_block in response.content:
-					if hasattr(content_block, 'type') and content_block.type == 'tool_use':
+					if getattr(content_block, 'type', None) == 'tool_use':
 						# Parse the tool input as the structured output
+						# Unwrap SDK "Content"-like objects before validation
+						raw_input = content_block.input
+						if not isinstance(raw_input, (str, dict)):
+							# try common attributes for SDK content wrappers
+							for attr in ('value', 'text', 'content', 'input'):
+								if hasattr(raw_input, attr):
+									raw_input = getattr(raw_input, attr)
+									break
 						try:
-							return ChatInvokeCompletion(completion=output_format.model_validate(content_block.input), usage=usage)
+							if isinstance(raw_input, str):
+								# Try to parse JSON string first
+								data = json.loads(raw_input)
+								validated = output_format.model_validate(data)
+							else:
+								validated = output_format.model_validate(raw_input)
+							return ChatInvokeCompletion(completion=validated, usage=usage)
 						except Exception as e:
-							# If validation fails, try to parse it as JSON first
-							if isinstance(content_block.input, str):
-								data = json.loads(content_block.input)
-								return ChatInvokeCompletion(
-									completion=output_format.model_validate(data),
-									usage=usage,
-								)
-							raise e
+							# If validation fails for the JSON path, try direct validation (if possible) then re-raise
+							try:
+								# If raw_input is string but not JSON, try validating the string directly
+								validated = output_format.model_validate(raw_input)
+								return ChatInvokeCompletion(completion=validated, usage=usage)
+							except Exception:
+								raise e
 
 				# If no tool use block found, raise an error
 				raise ValueError('Expected tool use in response but none found')

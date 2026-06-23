@@ -157,7 +157,7 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 		try:
 			if output_format is None:
 				# Normal completion without structured output
-				response = await self.get_client().messages.create(
+				response = await self.get_client().messages.create(  # type: ignore[arg-type]
 					model=self.model,
 					messages=anthropic_messages,
 					system=system_prompt or NOT_GIVEN,
@@ -199,7 +199,7 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 				# Force the model to use this tool
 				tool_choice = ToolChoiceToolParam(type='tool', name=tool_name)
 
-				response = await self.get_client().messages.create(
+				response = await self.get_client().messages.create(  # type: ignore[arg-type]
 					model=self.model,
 					messages=anthropic_messages,
 					tools=[tool],
@@ -215,15 +215,30 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 					if hasattr(content_block, 'type') and content_block.type == 'tool_use':
 						# Parse the tool input as the structured output
 						try:
-							return ChatInvokeCompletion(completion=output_format.model_validate(content_block.input), usage=usage)
+							input_content = content_block.input
+							# Normalize input_content to primitive types expected by model_validate/json.loads
+							if hasattr(input_content, 'text'):
+								normalized = input_content.text
+							elif isinstance(input_content, (dict, list)):
+								normalized = input_content
+							elif isinstance(input_content, bytes):
+								normalized = input_content.decode()
+							else:
+								normalized = str(input_content)
+
+							# First attempt to validate the normalized content directly
+							return ChatInvokeCompletion(completion=output_format.model_validate(normalized), usage=usage)
 						except Exception as e:
-							# If validation fails, try to parse it as JSON first
-							if isinstance(content_block.input, str):
-								data = json.loads(content_block.input)
-								return ChatInvokeCompletion(
-									completion=output_format.model_validate(data),
-									usage=usage,
-								)
+							# If validation fails, try to parse it as JSON first (when normalized is a string)
+							try:
+								if isinstance(normalized, str):
+									data = json.loads(normalized)
+									return ChatInvokeCompletion(
+										completion=output_format.model_validate(data),
+										usage=usage,
+									)
+							except Exception:
+								# Fall through to raising the original validation error
 							raise e
 
 				# If no tool use block found, raise an error

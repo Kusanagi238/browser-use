@@ -1317,9 +1317,7 @@ class BrowserSession(BaseModel):
 		# PID detection is no longer needed since we get PIDs directly from subprocesses or passed objects
 
 		if self.browser:
-			assert self.browser.is_connected(), (
-				f'Browser is not connected, did the browser process crash or get killed? (connection method: {self._connection_str})'
-			)
+			assert self.browser.is_connected(), f'Browser is not connected, did the browser process crash or get killed? (connection method: {self._connection_str})'
 			# Only log final connection if we didn't already log it via setup_browser_via_browser_pid
 			if not (hasattr(self, '_subprocess') and self._subprocess and self._subprocess.pid == self.browser_pid):
 				self.logger.debug(f'🪢 Browser {self._connection_str} connected {self.browser or self.browser_context}')
@@ -1327,9 +1325,9 @@ class BrowserSession(BaseModel):
 			# For launch_persistent_context case where we don't get a browser object
 			self.logger.debug(f'🪢 Browser context {self._connection_str} connected {self.browser_context}')
 
-		assert self.browser_context, (
-			f'{self} Failed to create a playwright BrowserContext {self.browser_context} for browser={self.browser}'
-		)
+		assert (
+			self.browser_context
+		), f'{self} Failed to create a playwright BrowserContext {self.browser_context} for browser={self.browser}'
 
 		# self.logger.debug('Setting up init scripts in browser')
 
@@ -2899,9 +2897,9 @@ class BrowserSession(BaseModel):
 			await page.wait_for_load_state()
 		except Exception as e:
 			self.logger.warning(f'⚠️ Page {_log_pretty_url(page.url)} failed to fully load after refresh: {type(e).__name__}: {e}')
-			assert await page.evaluate('1'), (
-				f'Page {page.url} crashed after {type(e).__name__} and can no longer be used via CDP: {e}'
-			)
+			assert await page.evaluate(
+				'1'
+			), f'Page {page.url} crashed after {type(e).__name__} and can no longer be used via CDP: {e}'
 
 	async def go_back(self):
 		"""Navigate the agent's tab back in browser history"""
@@ -2917,9 +2915,9 @@ class BrowserSession(BaseModel):
 			# Verify page is still usable after navigation error
 			if 'timeout' in str(e).lower():
 				try:
-					assert await page.evaluate('1'), (
-						f'Page {page.url} crashed after go_back {type(e).__name__} and can no longer be used via CDP: {e}'
-					)
+					assert await page.evaluate(
+						'1'
+					), f'Page {page.url} crashed after go_back {type(e).__name__} and can no longer be used via CDP: {e}'
 				except Exception as eval_error:
 					self.logger.error(f'❌ Page crashed after go_back timeout: {eval_error}')
 
@@ -2934,9 +2932,9 @@ class BrowserSession(BaseModel):
 			# Verify page is still usable after navigation error
 			if 'timeout' in str(e).lower():
 				try:
-					assert await page.evaluate('1'), (
-						f'Page {page.url} crashed after go_forward {type(e).__name__} and can no longer be used via CDP: {e}'
-					)
+					assert await page.evaluate(
+						'1'
+					), f'Page {page.url} crashed after go_forward {type(e).__name__} and can no longer be used via CDP: {e}'
 				except Exception as eval_error:
 					self.logger.error(f'❌ Page crashed after go_forward timeout: {eval_error}')
 
