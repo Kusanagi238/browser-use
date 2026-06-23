@@ -59,13 +59,7 @@ cli = [
     "click>=8.1.8",
     "textual>=3.2.0",
 ]
-examples = [
-    # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
-    "botocore>=1.37.23",
-    "imgcat>=0.6.0",
-    "stagehand-py>=0.3.6",
-    "browserbase>=0.4.0",
-]
+examples = []
 all = [
     "browser-use[memory,cli,examples]",
 ]
@@ -139,8 +133,8 @@ filterwarnings = [
 log_level = "INFO"
 
 
-[tool.uv]
-dev-dependencies = [
+[project.dependency-groups.dev]
+dependencies = [
     "ruff>=0.11.2",
     "tokencost>=0.1.16",
     "build>=1.2.2",

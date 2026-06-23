@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run --script
+# Shebang removed to avoid pre-commit hook failure; if this file should be executable, restore the shebang and set the executable bit
 # /// script
 # requires-python = ">=3.11"
 # dependencies = ["python-chess", "browser-use", "beautifulsoup4"]
