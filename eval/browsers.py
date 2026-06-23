@@ -297,11 +297,11 @@ async def _retry_browser_creation(browser_func, max_retries: int = 3, *args, **k
 		except Exception as e:
 			if attempt == max_retries - 1:  # Last attempt
 				raise RuntimeError(f'Failed to create browser session after {max_retries} attempts: {type(e).__name__}: {e}')
-			
-			wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+
+			wait_time = 2**attempt  # Exponential backoff: 1s, 2s, 4s
 			logger.warning(f'Browser creation attempt {attempt + 1} failed: {type(e).__name__}: {e}. Retrying in {wait_time}s...')
 			await asyncio.sleep(wait_time)
-	
+
 	raise RuntimeError(f'Failed to create browser session after {max_retries} attempts')
 
 
@@ -329,32 +329,36 @@ async def setup_browser_session(
 
 	if browser == 'anchor-browser':
 		if not ANCHOR_BROWSER_API_KEY:
-			raise ValueError(f'Browser setup: Anchor Browser requested but ANCHOR_BROWSER_API_KEY not set for task {task.task_id}')
-		
+			raise ValueError(
+				f'Browser setup: Anchor Browser requested but ANCHOR_BROWSER_API_KEY not set for task {task.task_id}'
+			)
+
 		logger.debug(f'Browser setup: Creating Anchor Browser session for task {task.task_id}')
 		cdp_url = await _retry_browser_creation(create_anchor_browser_session, 3, headless)
 	elif browser == 'brightdata':
 		if not BRIGHTDATA_CDP_URL:
 			raise ValueError(f'Browser setup: Brightdata requested but BRIGHTDATA_CDP_URL not set for task {task.task_id}')
-		
+
 		logger.debug(f'Browser setup: Using Brightdata CDP URL for task {task.task_id}')
 		cdp_url = BRIGHTDATA_CDP_URL
 	elif browser == 'browserbase':
 		if not BROWSERBASE_API_KEY or not BROWSERBASE_PROJECT_ID:
-			raise ValueError(f'Browser setup: Browserbase requested but BROWSERBASE_API_KEY or BROWSERBASE_PROJECT_ID not set for task {task.task_id}')
-		
+			raise ValueError(
+				f'Browser setup: Browserbase requested but BROWSERBASE_API_KEY or BROWSERBASE_PROJECT_ID not set for task {task.task_id}'
+			)
+
 		logger.debug(f'Browser setup: Creating Browserbase session for task {task.task_id}')
 		cdp_url = await _retry_browser_creation(create_browserbase_session, 3)
 	elif browser == 'hyperbrowser':
 		if not HYPERBROWSER_API_KEY:
 			raise ValueError(f'Browser setup: Hyperbrowser requested but HYPERBROWSER_API_KEY not set for task {task.task_id}')
-		
+
 		logger.debug(f'Browser setup: Creating Hyperbrowser session for task {task.task_id}')
 		cdp_url = await _retry_browser_creation(create_hyperbrowser_session, 3)
 	elif browser == 'unikraft':
 		if not UKC_TOKEN or not UKC_METRO:
 			raise ValueError(f'Browser setup: Unikraft requested but UKC_TOKEN or UKC_METRO not set for task {task.task_id}')
-		
+
 		logger.debug(f'Browser setup: Creating Unikraft session for task {task.task_id}')
 		cdp_url = await _retry_browser_creation(create_unikraft_session, 3, headless)
 	elif browser == 'browser-use':
@@ -416,7 +420,7 @@ async def setup_browser_session(
 		# All remote browsers should have provided a CDP URL or raised an exception
 		if not cdp_url:
 			raise RuntimeError(f'Browser setup: No CDP URL obtained for {browser} browser for task {task.task_id}')
-		
+
 		logger.debug(f'Browser setup: Using {browser} CDP Browser for task {task.task_id}')
 		browser_session = BrowserSession(browser_profile=profile, cdp_url=cdp_url)
 

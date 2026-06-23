@@ -1,6 +1,6 @@
 import base64
 
-from google.genai.types import Content, ContentListUnion, Part
+from google.genai.types import ContentListUnion, Part
 
 from browser_use.llm.messages import (
 	AssistantMessage,
@@ -31,7 +31,8 @@ class GoogleMessageSerializer:
 		    - system_message: System instruction string or None
 		"""
 
-		messages = [m.model_copy(deep=True) for m in messages]
+		import copy
+		messages = [copy.deepcopy(m) for m in messages]
 
 		formatted_messages: ContentListUnion = []
 		system_message: str | None = None
@@ -92,7 +93,9 @@ class GoogleMessageSerializer:
 
 			# Create the Content object
 			if message_parts:
-				final_message = Content(role=role, parts=message_parts)
+				# Avoid constructing google.genai.types.Content directly (overload/type mismatches);
+				# use a plain mapping that contains the role and parts instead.
+				final_message = {'role': role, 'parts': message_parts}
 				formatted_messages.append(final_message)
 
 		return formatted_messages, system_message

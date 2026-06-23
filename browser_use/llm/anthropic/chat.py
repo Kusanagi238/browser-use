@@ -44,7 +44,8 @@ class ChatAnthropic(BaseChatModel):
 	api_key: str | None = None
 	auth_token: str | None = None
 	base_url: str | httpx.URL | None = None
-	timeout: float | Timeout | None | NotGiven = NotGiven()
+	# Use a broad type that will accept the NotGiven() sentinel instance for typing
+	timeout: float | Timeout | None | object = NotGiven()
 	max_retries: int = 10
 	default_headers: Mapping[str, str] | None = None
 	default_query: Mapping[str, object] | None = None
@@ -128,9 +129,14 @@ class ChatAnthropic(BaseChatModel):
 		anthropic_messages, system_prompt = AnthropicMessageSerializer.serialize_messages(messages)
 
 		try:
+			# Cast the client's messages API to Any to avoid strict overload mismatches from the
+			# typed client signatures. Import typing locally to avoid touching top-level imports.
+			import typing
+			client_messages = typing.cast(typing.Any, self.get_client().messages)
+
 			if output_format is None:
 				# Normal completion without structured output
-				response = await self.get_client().messages.create(
+				response = await client_messages.create(
 					model=self.model,
 					messages=anthropic_messages,
 					system=system_prompt or NOT_GIVEN,
@@ -172,7 +178,7 @@ class ChatAnthropic(BaseChatModel):
 				# Force the model to use this tool
 				tool_choice = ToolChoiceToolParam(type='tool', name=tool_name)
 
-				response = await self.get_client().messages.create(
+				response = await client_messages.create(
 					model=self.model,
 					messages=anthropic_messages,
 					tools=[tool],

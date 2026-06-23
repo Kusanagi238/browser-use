@@ -108,7 +108,7 @@ Context = TypeVar('Context')
 AgentHookFunc = Callable[['Agent'], Awaitable[None]]
 
 
-class Agent(Generic[Context, AgentStructuredOutput]):
+class Agent(Generic[Context]):
 	browser_session: BrowserSession | None = None
 	_logger: logging.Logger | None = None
 
@@ -1270,7 +1270,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				create_history_gif(task=self.task, history=self.state.history, output_path=output_path)
 
 				# Emit output file generated event for GIF
-				output_event = await CreateAgentOutputFileEvent.from_agent_and_file(self, output_path)
+				output_event = CreateAgentOutputFileEvent.from_agent_and_file(self, output_path)
 				self.eventbus.dispatch(output_event)
 
 			# Wait briefly for cloud auth to start and print the URL, but don't block for completion

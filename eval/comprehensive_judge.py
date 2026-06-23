@@ -82,12 +82,12 @@ class JudgeResult(BaseModel):
 
 	# Analysis
 	reasoning: str  # What went well/not well analysis
-	error_categories: list[ErrorCategory]  # Core error categories identified
+	error_categories: typing.List[ErrorCategory]  # Core error categories identified
 
 	final_score: int  # Overall score (0-100) - percentage of task completion
 
 	# Developer Feedback
-	improvement_tips: list[str]  # Concrete improvement suggestions
+	improvement_tips: typing.List[str]  # Concrete improvement suggestions
 
 
 def encode_image(image_path: str) -> str:
@@ -195,8 +195,12 @@ def are_images_identical(img_path1: str, img_path2: str) -> bool:
 			if img1.size != img2.size:
 				return False
 
-			# Compare pixel data
-			return list(img1.getdata()) == list(img2.getdata())
+			# Use ImageChops.difference to reliably check equality without depending on getdata() iterable typing
+			from PIL import ImageChops
+
+			diff = ImageChops.difference(img1, img2)
+			# If images are identical the bounding box of the difference is None
+			return diff.getbbox() is None
 	except Exception as e:
 		logger.warning(f'Failed to compare images {img_path1} and {img_path2}: {e}')
 		return False
@@ -237,10 +241,10 @@ def filter_images(screenshot_paths: list[str], max_images: int) -> list[str]:
 @observe_debug()
 async def comprehensive_judge(
 	task: str,
-	complete_history: list[dict],
+	complete_history: typing.List[dict],
 	final_result: str,
 	last_message: str,
-	screenshot_paths: list[str],
+	screenshot_paths: typing.List[str],
 	model: BaseChatModel,
 	max_images: int = 10,
 ) -> JudgeResult:
@@ -267,7 +271,7 @@ async def comprehensive_judge(
 	selected_images = filter_images(screenshot_paths, max_images)
 
 	# Encode images
-	encoded_images: list[ContentPartImageParam] = []
+	encoded_images: typing.List[ContentPartImageParam] = []
 	for img_path in selected_images:
 		if Path(img_path).exists():
 			encoded_img = encode_image(img_path)
@@ -423,10 +427,12 @@ Respond with EXACTLY this JSON structure (no additional text before or after):
 Evaluate this agent execution given the criteria and respond with the exact JSON structure requested."""
 
 	# Build messages
-	content_parts: list[ContentPartTextParam | ContentPartImageParam] = [ContentPartTextParam(text=user_prompt)]
+	content_parts: typing.List[typing.Union[ContentPartTextParam, ContentPartImageParam]] = [
+		ContentPartTextParam(text=user_prompt)
+	]
 	content_parts.extend(encoded_images)
 
-	messages: list[BaseMessage] = [
+	messages: typing.List[BaseMessage] = [
 		SystemMessage(content=system_prompt),
 		UserMessage(content=content_parts),
 	]
@@ -530,10 +536,10 @@ async def judge_with_retry(
 
 async def judge_with_repeat_and_average(
 	task: str,
-	complete_history: list[dict],
+	complete_history: typing.List[dict],
 	final_result: str,
 	last_message: str,
-	screenshot_paths: list[str],
+	screenshot_paths: typing.List[str],
 	model: BaseChatModel,
 	judge_repeat_count: int = 1,
 	max_retries: int = 3,
@@ -577,7 +583,7 @@ async def judge_with_repeat_and_average(
 	results = await asyncio.gather(*judge_tasks, return_exceptions=True)
 
 	# Process results and filter out exceptions
-	evaluations: list[JudgeResult] = []
+	evaluations: typing.List[JudgeResult] = []
 	for i, result in enumerate(results):
 		if isinstance(result, Exception):
 			logger.warning(f'Judge evaluation {i + 1} failed: {result}')
@@ -593,24 +599,24 @@ async def judge_with_repeat_and_average(
 	logger.info(f'Averaging {len(evaluations)} successful evaluations')
 
 	# Calculate averaged score
-	avg_score = sum(eval.final_score for eval in evaluations) / len(evaluations)
+	avg_score = sum(r.final_score for r in evaluations) / len(evaluations)
 
 	# Merge error categories (keep unique)
 	all_error_categories = []
-	for eval in evaluations:
-		all_error_categories.extend(eval.error_categories)
+	for evaluation in evaluations:
+		all_error_categories.extend(evaluation.error_categories)
 	unique_error_categories = list(set(all_error_categories))  # Remove duplicates
 
 	# Merge improvement tips (keep unique)
 	all_improvement_tips = []
-	for eval in evaluations:
-		all_improvement_tips.extend(eval.improvement_tips)
+	for evaluation in evaluations:
+		all_improvement_tips.extend(evaluation.improvement_tips)
 	unique_improvement_tips = list(set(all_improvement_tips))  # Remove duplicates
 
 	# concat reasoning with 1. and 2....
 	reasoning = ''
-	for j, eval in enumerate(evaluations):
-		reasoning += f'JUDGE {j + 1} SCORE: {eval.final_score}\n{eval.reasoning}\n'
+	for j, evaluation in enumerate(evaluations):
+		reasoning += f'JUDGE {j + 1} SCORE: {evaluation.final_score}\n{evaluation.reasoning}\n'
 
 	max_diff = (
 		max(evaluations, key=lambda x: x.final_score).final_score - min(evaluations, key=lambda x: x.final_score).final_score
@@ -626,13 +632,13 @@ async def judge_with_repeat_and_average(
 	)
 
 
-def _read_result_file(result_file: Path) -> dict[str, Any]:
+def _read_result_file(result_file: Path) -> typing.Dict[str, Any]:
 	"""Helper function to read result file synchronously."""
 	with open(result_file) as f:
 		return json.load(f)
 
 
-def _write_result_file(result_file: Path, result_data: dict[str, Any]) -> None:
+def _write_result_file(result_file: Path, result_data: typing.Dict[str, Any]) -> None:
 	"""Helper function to write result file synchronously."""
 	with open(result_file, 'w') as f:
 		f.write(json.dumps(result_data, indent=2, default=str))
@@ -642,7 +648,7 @@ def _write_result_file(result_file: Path, result_data: dict[str, Any]) -> None:
 @observe_debug()
 async def evaluate_task_with_comprehensive_judge(
 	task_folder: Path, model: BaseChatModel, max_images: int = 10, judge_repeat_count: int = 1
-) -> dict[str, Any]:
+) -> typing.Dict[str, Any]:
 	"""
 	Evaluate a task result using the comprehensive judge system.
 
