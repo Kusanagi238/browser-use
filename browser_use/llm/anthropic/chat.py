@@ -70,7 +70,8 @@ class ChatAnthropic(BaseChatModel):
 		# Create client_params dict with non-None values and non-NotGiven values
 		client_params = {}
 		for k, v in base_params.items():
-			if v is not None and v is not NotGiven():
+			# Compare against the library sentinel NOT_GIVEN rather than instantiating NotGiven()
+			if v is not None and v is not NOT_GIVEN:
 				client_params[k] = v
 
 		return client_params
@@ -130,10 +131,16 @@ class ChatAnthropic(BaseChatModel):
 		try:
 			if output_format is None:
 				# Normal completion without structured output
+				# Determine system argument explicitly to avoid creating a union that includes NOT_GIVEN
+				if system_prompt is None or system_prompt is NOT_GIVEN:
+					system_arg = NOT_GIVEN
+				else:
+					system_arg = system_prompt
+
 				response = await self.get_client().messages.create(
 					model=self.model,
 					messages=anthropic_messages,
-					system=system_prompt or NOT_GIVEN,
+					system=system_arg,
 					**self._get_client_params_for_invoke(),
 				)
 
@@ -172,11 +179,17 @@ class ChatAnthropic(BaseChatModel):
 				# Force the model to use this tool
 				tool_choice = ToolChoiceToolParam(type='tool', name=tool_name)
 
+				# Determine system argument explicitly to avoid creating a union that includes NOT_GIVEN
+				if system_prompt is None or system_prompt is NOT_GIVEN:
+					system_arg = NOT_GIVEN
+				else:
+					system_arg = system_prompt
+
 				response = await self.get_client().messages.create(
 					model=self.model,
 					messages=anthropic_messages,
 					tools=[tool],
-					system=system_prompt or NOT_GIVEN,
+					system=system_arg,
 					tool_choice=tool_choice,
 					**self._get_client_params_for_invoke(),
 				)

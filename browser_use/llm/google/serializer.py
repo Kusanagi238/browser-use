@@ -44,12 +44,16 @@ class GoogleMessageSerializer:
 				# Extract system message content as string
 				if isinstance(message.content, str):
 					system_message = message.content
-				elif message.content is not None:
+				# Ensure content is iterable (but not a str/bytes) before iterating
+				elif message.content is not None and hasattr(message.content, '__iter__') and not isinstance(message.content, (str, bytes)):
 					# Handle Iterable of content parts
 					parts = []
 					for part in message.content:
+						# Skip elements that don't look like parts
+						if not hasattr(part, 'type'):
+							continue
 						if part.type == 'text':
-							parts.append(part.text)
+							parts.append(getattr(part, 'text', ''))
 					system_message = '\n'.join(parts)
 				continue
 
@@ -69,26 +73,35 @@ class GoogleMessageSerializer:
 			if isinstance(message.content, str):
 				# Regular text content
 				message_parts = [Part.from_text(text=message.content)]
-			elif message.content is not None:
+			# Ensure content is iterable (but not a str/bytes) before iterating
+			elif message.content is not None and hasattr(message.content, '__iter__') and not isinstance(message.content, (str, bytes)):
 				# Handle Iterable of content parts
 				for part in message.content:
+					# Skip elements that don't look like parts
+					if not hasattr(part, 'type'):
+						continue
 					if part.type == 'text':
-						message_parts.append(Part.from_text(text=part.text))
+						message_parts.append(Part.from_text(text=getattr(part, 'text', '')))
 					elif part.type == 'refusal':
-						message_parts.append(Part.from_text(text=f'[Refusal] {part.refusal}'))
+						ref_text = getattr(part, 'refusal', '')
+						message_parts.append(Part.from_text(text=f'[Refusal] {ref_text}'))
 					elif part.type == 'image_url':
 						# Handle images
-						url = part.image_url.url
-
+						image_url_obj = getattr(part, 'image_url', None)
+						url = getattr(image_url_obj, 'url', None) if image_url_obj is not None else None
+						if not isinstance(url, str):
+							continue
 						# Format: data:image/png;base64,<data>
-						header, data = url.split(',', 1)
-						# Decode base64 to bytes
-						image_bytes = base64.b64decode(data)
-
-						# Add image part
-						image_part = Part.from_bytes(data=image_bytes, mime_type='image/png')
-
-						message_parts.append(image_part)
+						try:
+							header, data = url.split(',', 1)
+							# Decode base64 to bytes
+							image_bytes = base64.b64decode(data)
+							# Add image part
+							image_part = Part.from_bytes(data=image_bytes, mime_type='image/png')
+							message_parts.append(image_part)
+						except Exception:
+							# Skip malformed image URLs without failing
+							continue
 
 			# Create the Content object
 			if message_parts:

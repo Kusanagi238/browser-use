@@ -18,7 +18,6 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import (
 	BaseMessage,
 	ContentPartImageParam,
-	ContentPartTextParam,
 	ImageURL,
 	SystemMessage,
 	UserMessage,
@@ -181,7 +180,11 @@ def prepare_agent_steps(complete_history: list[dict]) -> list[str]:
 
 
 def are_images_identical(img_path1: str, img_path2: str) -> bool:
-	"""Check if two images are identical by comparing their content."""
+	"""Check if two images are identical by comparing their content.
+
+	Uses ImageChops.difference which is robust and avoids iterating over ImagingCore
+	types returned by getdata(). Falls back to comparing raw bytes if needed.
+	"""
 	try:
 		with Image.open(img_path1) as img1, Image.open(img_path2) as img2:
 			# Convert to same format for comparison
@@ -193,8 +196,18 @@ def are_images_identical(img_path1: str, img_path2: str) -> bool:
 			if img1.size != img2.size:
 				return False
 
-			# Compare pixel data
-			return list(img1.getdata()) == list(img2.getdata())
+			# Use ImageChops.difference which returns an image with non-zero bbox when
+			# images differ. This avoids creating lists from ImagingCore objects.
+			try:
+				from PIL import ImageChops
+				diff = ImageChops.difference(img1, img2)
+				return diff.getbbox() is None
+			except Exception:
+				# Fallback: compare raw bytes (should be rare)
+				try:
+					return img1.tobytes() == img2.tobytes()
+				except Exception:
+					return False
 	except Exception as e:
 		logger.warning(f'Failed to compare images {img_path1} and {img_path2}: {e}')
 		return False
@@ -419,12 +432,25 @@ Respond with EXACTLY this JSON structure (no additional text before or after):
 Evaluate this agent execution given the criteria and respond with the exact JSON structure requested."""
 
 	# Build messages
-	content_parts: list[ContentPartTextParam | ContentPartImageParam] = [ContentPartTextParam(text=user_prompt)]
-	content_parts.extend(encoded_images)
+	# Combine text prompt and inline image data into a single string to satisfy
+	# the model/message API typing (which expects a string for UserMessage.content).
+	combined_user_content = user_prompt
+	for img in encoded_images:
+		try:
+			img_url = getattr(img, 'image_url', None)
+			url = getattr(img_url, 'url', None) if img_url is not None else None
+			if url:
+				combined_user_content += '\n\n[IMAGE]' + url
+			else:
+				# If structure is unexpected, append a placeholder so the judge knows
+				combined_user_content += '\n\n[IMAGE]'
+		except Exception:
+			# Ignore malformed image objects and continue
+			continue
 
 	messages: list[BaseMessage] = [
 		SystemMessage(content=system_prompt),
-		UserMessage(content=content_parts),
+		UserMessage(content=combined_user_content),
 	]
 
 	# Get structured response
