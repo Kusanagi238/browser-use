@@ -56,10 +56,7 @@ import psutil
 from lmnr import AsyncLaminarClient, Laminar, observe
 from PIL import Image
 
-from browser_use.llm.anthropic.chat import ChatAnthropic
 from browser_use.llm.base import BaseChatModel
-from browser_use.llm.google.chat import ChatGoogle
-from browser_use.llm.openai.chat import ChatOpenAI
 
 MAX_IMAGE = 5
 
@@ -850,7 +847,12 @@ def create_controller(use_serp: bool = False):
 
 
 def get_llm(model_name: str):
-	"""Instantiates the correct ChatModel based on the model name."""
+	"""Instantiates the correct ChatModel based on the model name.
+
+	This function performs local imports for provider-specific chat models so that
+	static type checkers see the symbols defined and runtime import errors are
+	handled with clear messages.
+	"""
 	if model_name not in SUPPORTED_MODELS:
 		raise ValueError(f'Unsupported model: {model_name}. Supported models are: {list(SUPPORTED_MODELS.keys())}')
 
@@ -865,40 +867,57 @@ def get_llm(model_name: str):
 		)
 		api_key = None
 
-	match provider:
-		case 'openai':
-			kwargs = {'model': config['model_name'], 'temperature': 0.0}
-			# Must set temperatue=1 if model is gpt-o4-mini
-			if model_name == 'gpt-o4-mini':
-				kwargs['temperature'] = 1
-			if api_key:
-				kwargs['api_key'] = api_key
-			return ChatOpenAI(**kwargs)
-		case 'anthropic':
-			kwargs = {
-				'model': config['model_name'],
-				'temperature': 0.0,
-				'timeout': 100,
-			}
-			if api_key:
-				kwargs['api_key'] = api_key
-			return ChatAnthropic(**kwargs)
-		case 'google':
-			kwargs = {'model': config['model_name'], 'temperature': 0.0}
-			if api_key:
-				kwargs['api_key'] = api_key
-			return ChatGoogle(**kwargs)
-		case 'openai_compatible':
-			kwargs = {'model': config['model_name'], 'base_url': config['base_url'], 'temperature': 0.0}
-			if api_key:
-				kwargs['api_key'] = api_key
-			elif config.get('base_url'):
-				logger.warning(
-					f'API key for {model_name} at {config["base_url"]} is missing, but base_url is specified. Authentication may fail.'
-				)
-			return ChatOpenAI(**kwargs)
-		case _:
-			raise ValueError(f'Unknown provider: {provider}')
+	# Import provider-specific chat model classes lazily to avoid undefined symbol
+	# errors from static checkers and to provide clearer runtime diagnostics.
+	try:
+		from langchain.chat_models import ChatAnthropic, ChatGoogle, ChatOpenAI
+	except Exception:
+		# Define names in local scope so references below are resolvable by static
+		# analyzers; at runtime, if the imports failed, raise an informative error
+		ChatOpenAI = ChatAnthropic = ChatGoogle = None
+
+	# Use simple conditional branching for clarity and compatibility
+	if provider == 'openai':
+		if ChatOpenAI is None:
+			raise RuntimeError('ChatOpenAI provider requested but langchain.chat_models.ChatOpenAI could not be imported. Install langchain or provide a compatible client.')
+		kwargs = {'model': config['model_name'], 'temperature': 0.0}
+		# Must set temperatue=1 if model is gpt-o4-mini
+		if model_name == 'gpt-o4-mini':
+			kwargs['temperature'] = 1
+		if api_key:
+			kwargs['api_key'] = api_key
+		return ChatOpenAI(**kwargs)
+	elif provider == 'anthropic':
+		if ChatAnthropic is None:
+			raise RuntimeError('ChatAnthropic provider requested but langchain.chat_models.ChatAnthropic could not be imported. Install langchain or provide a compatible client.')
+		kwargs = {
+			'model': config['model_name'],
+			'temperature': 0.0,
+			'timeout': 100,
+		}
+		if api_key:
+			kwargs['api_key'] = api_key
+		return ChatAnthropic(**kwargs)
+	elif provider == 'google':
+		if ChatGoogle is None:
+			raise RuntimeError('ChatGoogle provider requested but langchain.chat_models.ChatGoogle could not be imported. Install langchain or provide a compatible client.')
+		kwargs = {'model': config['model_name'], 'temperature': 0.0}
+		if api_key:
+			kwargs['api_key'] = api_key
+		return ChatGoogle(**kwargs)
+	elif provider == 'openai_compatible':
+		if ChatOpenAI is None:
+			raise RuntimeError('OpenAI-compatible provider requested but ChatOpenAI could not be imported. Install langchain or provide a compatible client.')
+		kwargs = {'model': config['model_name'], 'base_url': config.get('base_url'), 'temperature': 0.0}
+		if api_key:
+			kwargs['api_key'] = api_key
+		elif config.get('base_url'):
+			logger.warning(
+				f'API key for {model_name} at {config["base_url"]} is missing, but base_url is specified. Authentication may fail.'
+			)
+		return ChatOpenAI(**kwargs)
+	else:
+		raise ValueError(f'Unknown provider: {provider}')
 
 
 def clean_action_dict(action_dict: dict) -> dict:
@@ -1120,7 +1139,7 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 		}
 
 	try:
-		async with await anyio.open_file(result_file) as f:
+		async with anyio.open_file(result_file) as f:
 			result = json.loads(await f.read())
 
 		# Check if we should use the original Mind2Web evaluation

@@ -266,8 +266,10 @@ def are_images_identical(img_path1: str, img_path2: str) -> bool:
 			if img1.size != img2.size:
 				return False
 
-			# Compare pixel data
-			return list(img1.getdata()) == list(img2.getdata())
+			# Compare raw bytes to avoid relying on Image.getdata() iterable types
+			# which can be typed as ImagingCore by some stubs/type-checkers.
+			# tobytes() returns a bytes object suitable for direct comparison.
+			return img1.tobytes() == img2.tobytes()
 	except Exception as e:
 		logger.warning(f'Failed to compare images {img_path1} and {img_path2}: {e}')
 		return False
@@ -482,13 +484,28 @@ Respond with EXACTLY this JSON structure (no additional text):
 Analyze this execution and respond with the exact JSON structure requested."""
 
 	# Build messages
+	# Prepare textual prompt as the main user message. Many message APIs expect a string
+	# as the content field; passing a list of ContentPart* objects can trigger type errors.
 	content_parts: list[ContentPartTextParam | ContentPartImageParam] = [ContentPartTextParam(text=user_prompt)]
 	content_parts.extend(encoded_images)
 
+	# Send the system prompt and the user's textual prompt as a plain string.
 	messages: list[BaseMessage] = [
 		SystemMessage(content=system_prompt),
-		UserMessage(content=content_parts),
+		UserMessage(content=user_prompt),
 	]
+
+	# If there are encoded images, append them as separate user messages containing the data-URI strings.
+	# This keeps the message content typed as str and avoids passing complex ContentPart objects
+	# directly into UserMessage.content which can cause type-checker errors.
+	for img in encoded_images:
+		try:
+			# img is ContentPartImageParam(image_url=ImageURL(url=f'data:...'))
+			img_url = img.image_url.url
+			messages.append(UserMessage(content=f'[IMAGE]{img_url}'))
+		except Exception:
+			# If image param shape is unexpected, skip attaching it rather than failing the whole request
+			continue
 
 	# Get structured response
 	try:

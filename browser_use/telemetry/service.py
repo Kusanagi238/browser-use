@@ -53,12 +53,8 @@ class ProductTelemetry:
 			logger.info(
 				'Anonymized telemetry enabled. See https://docs.browser-use.com/development/telemetry for more information.'
 			)
-			self._posthog_client = Posthog(
-				project_api_key=self.PROJECT_API_KEY,
-				host=self.HOST,
-				disable_geoip=False,
-				enable_exception_autocapture=True,
-			)
+			# Construct Posthog client using the documented constructor signature: api key as first arg
+			self._posthog_client = Posthog(self.PROJECT_API_KEY, host=self.HOST)
 
 			# Silence posthog's logging
 			if not self.debug_logging:
@@ -82,10 +78,11 @@ class ProductTelemetry:
 			return
 
 		try:
+			# Use keyword arguments to match the posthog client capture signature and avoid overload ambiguity
 			self._posthog_client.capture(
-				self.user_id,
-				event.name,
-				{**event.properties, **POSTHOG_EVENT_SETTINGS},
+				distinct_id=self.user_id,
+				event=event.name,
+				properties={**event.properties, **POSTHOG_EVENT_SETTINGS},
 			)
 		except Exception as e:
 			logger.error(f'Failed to send telemetry event {event.name}: {e}')

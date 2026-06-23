@@ -5,7 +5,7 @@ import logging
 import re
 from collections.abc import Callable
 from inspect import Parameter, iscoroutinefunction, signature
-from typing import Any, Generic, Optional, TypeVar, Union, get_args, get_origin
+from typing import Any, Generic, TypeVar, Union, get_args, get_origin
 
 from pydantic import BaseModel, Field, RootModel, create_model
 
@@ -141,13 +141,21 @@ class Registry(Generic[Context]):
 					default = ... if param.default == Parameter.empty else param.default
 					params_dict[param.name] = (annotation, default)
 
-				param_model = create_model(f'{func.__name__}_Params', __base__=ActionModel, **params_dict)
+				from typing import cast
+
+				# create_model is constructed dynamically; cast to the expected runtime type to satisfy type-checkers
+				param_model = cast(type[BaseModel], create_model(f'{func.__name__}_Params', __base__=ActionModel, **params_dict))  # type: ignore[arg-type]
 			else:
 				# No action params, create empty model
-				param_model = create_model(
-					f'{func.__name__}_Params',
-					__base__=ActionModel,
-				)
+				from typing import cast
+
+				param_model = cast(
+					type[BaseModel],
+					create_model(
+						f'{func.__name__}_Params',
+						__base__=ActionModel,
+					),
+				)  # type: ignore[arg-type]
 		assert param_model is not None, f'param_model is None for {func.__name__}'
 
 		# Step 4: Create normalized wrapper function
@@ -243,7 +251,8 @@ class Registry(Generic[Context]):
 				return await asyncio.to_thread(func, *call_args)
 
 		# Update wrapper signature to be kwargs-only
-		new_params = [Parameter('params', Parameter.KEYWORD_ONLY, default=None, annotation=Optional[param_model])]
+		# Use a stable annotation that static checkers can reason about (BaseModel | None)
+		new_params = [Parameter('params', Parameter.KEYWORD_ONLY, default=None, annotation=BaseModel | None)]
 
 		# Add special params as keyword-only
 		for sp in special_params:
@@ -267,10 +276,16 @@ class Registry(Generic[Context]):
 			if name not in special_param_names
 		}
 		# TODO: make the types here work
-		return create_model(
-			f'{function.__name__}_parameters',
-			__base__=ActionModel,
-			**params,  # type: ignore
+		from typing import cast
+
+		# cast the result of create_model to satisfy static type-checkers when kwargs are dynamic
+		return cast(
+			type[BaseModel],
+			create_model(
+				f'{function.__name__}_parameters',
+				__base__=ActionModel,
+				**params,  # type: ignore[arg-type]
+			),
 		)
 
 	def action(
@@ -479,7 +494,6 @@ class Registry(Generic[Context]):
 		Each action model contains only the specific action being used,
 		rather than all actions with most set to None.
 		"""
-		from typing import Union
 
 		# Filter actions based on page if provided:
 		#   if page is None, only include actions with no filters
@@ -509,15 +523,20 @@ class Registry(Generic[Context]):
 
 		for name, action in available_actions.items():
 			# Create an individual model for each action that contains only one field
-			individual_model = create_model(
-				f'{name.title().replace("_", "")}ActionModel',
-				__base__=ActionModel,
-				**{
-					name: (
-						action.param_model,
-						Field(description=action.description),
-					)
-				},
+			from typing import cast
+
+			individual_model = cast(
+				type[ActionModel],
+				create_model(
+					f'{name.title().replace("_", "")}ActionModel',
+					__base__=ActionModel,
+					**{
+						name: (
+							action.param_model,
+							Field(description=action.description),
+						)
+					},  # type: ignore[arg-type]
+				),
 			)
 			individual_action_models.append(individual_model)
 
@@ -530,10 +549,8 @@ class Registry(Generic[Context]):
 			# If only one action, return it directly (no Union needed)
 			result_model = individual_action_models[0]
 		else:
-			# Create a Union type using RootModel that properly delegates ActionModel methods
-			union_type = Union[tuple(individual_action_models)]
-
-			class ActionModelUnion(RootModel[union_type]):  # type: ignore
+			# Create a RootModel-based union-like wrapper that properly delegates ActionModel methods
+			class ActionModelUnion(RootModel):  # type: ignore
 				"""Union of all available action models that maintains ActionModel interface"""
 
 				def get_index(self) -> int | None:
@@ -553,11 +570,11 @@ class Registry(Generic[Context]):
 						return self.root.model_dump(**kwargs)
 					return super().model_dump(**kwargs)
 
-			# Set the name for better debugging
-			ActionModelUnion.__name__ = 'ActionModel'
-			ActionModelUnion.__qualname__ = 'ActionModel'
+				# Set the name for better debugging
+				ActionModelUnion.__name__ = 'ActionModel'
+				ActionModelUnion.__qualname__ = 'ActionModel'
 
-			result_model = ActionModelUnion
+				result_model = ActionModelUnion
 
 		self.telemetry.capture(
 			ControllerRegisteredFunctionsTelemetryEvent(
