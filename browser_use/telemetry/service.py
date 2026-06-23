@@ -81,10 +81,16 @@ class ProductTelemetry:
 			return
 
 		try:
+			# The posthog client capture stub used by type checkers expects a single
+			# positional argument. Provide a single dict containing the expected
+			# payload (distinct_id, event, properties) to satisfy the stub while
+			# preserving the original behavior.
 			self._posthog_client.capture(
-				self.user_id,
-				event.name,
-				{**event.properties, **POSTHOG_EVENT_SETTINGS},
+				{
+					"distinct_id": self.user_id,
+					"event": event.name,
+					"properties": {**event.properties, **POSTHOG_EVENT_SETTINGS},
+				},
 			)
 		except Exception as e:
 			logger.error(f'Failed to send telemetry event {event.name}: {e}')

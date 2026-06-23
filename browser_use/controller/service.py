@@ -240,6 +240,12 @@ class Controller(Generic[Context]):
 			initial_pages = len(browser_session.tabs)
 
 			# if element has file uploader then dont click
+			# Ensure element_node exists before performing any checks that require a non-None node
+			if element_node is None:
+				msg = f'Element with index {params.index} does not exist'
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True, success=False, long_term_memory=msg)
+
 			# Check if element is actually a file input (not just contains file-related keywords)
 			if browser_session.is_file_input(element_node):
 				msg = f'Index {params.index} - has an element which opens file upload dialog. To upload files please use a specific function to upload files '
