@@ -1,12 +1,13 @@
 import base64
+import copy
 
-from google.genai.types import Content, ContentListUnion, Part
+from google.genai.types import Content, Part
 
 from browser_use.llm.messages import (
-	AssistantMessage,
-	BaseMessage,
-	SystemMessage,
-	UserMessage,
+    AssistantMessage,
+    BaseMessage,
+    SystemMessage,
+    UserMessage,
 )
 
 
@@ -14,7 +15,7 @@ class GoogleMessageSerializer:
 	"""Serializer for converting messages to Google Gemini format."""
 
 	@staticmethod
-	def serialize_messages(messages: list[BaseMessage]) -> tuple[ContentListUnion, str | None]:
+	def serialize_messages(messages: list[BaseMessage]) -> tuple[list[Content], str | None]:
 		"""
 		Convert a list of BaseMessages to Google format, extracting system message.
 
@@ -31,9 +32,10 @@ class GoogleMessageSerializer:
 		    - system_message: System instruction string or None
 		"""
 
-		messages = [m.model_copy(deep=True) for m in messages]
+		# Use deepcopy to avoid relying on model_copy implementations on messages
+		messages = copy.deepcopy(messages)
 
-		formatted_messages: ContentListUnion = []
+		formatted_messages: list[Content] = []
 		system_message: str | None = None
 
 		for message in messages:
@@ -68,14 +70,15 @@ class GoogleMessageSerializer:
 			# Extract content and create parts
 			if isinstance(message.content, str):
 				# Regular text content
-				message_parts = [Part.from_text(text=message.content)]
+				# Use positional args for factory methods to match common overloads
+				message_parts = [Part.from_text(message.content)]
 			elif message.content is not None:
 				# Handle Iterable of content parts
 				for part in message.content:
 					if part.type == 'text':
-						message_parts.append(Part.from_text(text=part.text))
+						message_parts.append(Part.from_text(part.text))
 					elif part.type == 'refusal':
-						message_parts.append(Part.from_text(text=f'[Refusal] {part.refusal}'))
+						message_parts.append(Part.from_text(f'[Refusal] {part.refusal}'))
 					elif part.type == 'image_url':
 						# Handle images
 						url = part.image_url.url
@@ -85,14 +88,15 @@ class GoogleMessageSerializer:
 						# Decode base64 to bytes
 						image_bytes = base64.b64decode(data)
 
-						# Add image part
-						image_part = Part.from_bytes(data=image_bytes, mime_type='image/png')
+						# Add image part (positional args)
+						image_part = Part.from_bytes(image_bytes, 'image/png')
 
 						message_parts.append(image_part)
 
 			# Create the Content object
 			if message_parts:
-				final_message = Content(role=role, parts=message_parts)
+				# Use positional construction to align with common Content constructors
+				final_message = Content(role, message_parts)
 				formatted_messages.append(final_message)
 
 		return formatted_messages, system_message

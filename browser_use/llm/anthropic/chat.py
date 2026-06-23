@@ -143,7 +143,7 @@ class ChatAnthropic(BaseChatModel):
 					messages=anthropic_messages,
 					system=system_prompt or NOT_GIVEN,
 					**self._get_client_params_for_invoke(),
-				)
+				)  # type: ignore[call-arg]
 
 				# Ensure we have a valid Message object before accessing attributes
 				if not isinstance(response, Message):
@@ -160,8 +160,17 @@ class ChatAnthropic(BaseChatModel):
 				if isinstance(first_content, TextBlock):
 					response_text = first_content.text
 				else:
-					# If it's not a text block, convert to string
-					response_text = str(first_content)
+					# If it's not a text block, convert to string safely
+					try:
+						# Try to extract a textual representation
+						if hasattr(first_content, 'text'):
+							response_text = first_content.text
+						elif isinstance(first_content, Mapping):
+							response_text = json.dumps(first_content)
+						else:
+							response_text = str(first_content)
+					except Exception:
+						response_text = str(first_content)
 
 				return ChatInvokeCompletion(
 					completion=response_text,
@@ -195,7 +204,7 @@ class ChatAnthropic(BaseChatModel):
 					system=system_prompt or NOT_GIVEN,
 					tool_choice=tool_choice,
 					**self._get_client_params_for_invoke(),
-				)
+				)  # type: ignore[call-arg]
 
 				# Ensure we have a valid Message object before accessing attributes
 				if not isinstance(response, Message):
@@ -209,19 +218,32 @@ class ChatAnthropic(BaseChatModel):
 
 				# Extract the tool use block
 				for content_block in response.content:
-					if hasattr(content_block, 'type') and content_block.type == 'tool_use':
-						# Parse the tool input as the structured output
+					if getattr(content_block, 'type', None) == 'tool_use':
+						# Parse the tool input as the structured output with robust handling
+						input_payload = getattr(content_block, 'input', None)
+						parsed = None
+						# Normalize the input into a python primitive (dict/str/etc.) before validation
 						try:
-							return ChatInvokeCompletion(completion=output_format.model_validate(content_block.input), usage=usage)
+							if isinstance(input_payload, str):
+								# try JSON first
+								try:
+									parsed = json.loads(input_payload)
+								except Exception:
+									parsed = input_payload
+							elif isinstance(input_payload, Mapping):
+								parsed = input_payload
+							elif hasattr(input_payload, 'text'):
+								parsed = getattr(input_payload, 'text')
+							elif hasattr(input_payload, 'content'):
+								parsed = getattr(input_payload, 'content')
+							else:
+								parsed = input_payload
+
+							# Validate using the output_format
+							return ChatInvokeCompletion(completion=output_format.model_validate(parsed), usage=usage)
 						except Exception as e:
-							# If validation fails, try to parse it as JSON first
-							if isinstance(content_block.input, str):
-								data = json.loads(content_block.input)
-								return ChatInvokeCompletion(
-									completion=output_format.model_validate(data),
-									usage=usage,
-								)
-							raise e
+							# If validation fails, surface a clear error
+							raise
 
 				# If no tool use block found, raise an error
 				raise ValueError('Expected tool use in response but none found')

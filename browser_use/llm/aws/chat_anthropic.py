@@ -4,11 +4,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 from anthropic import (
-	NOT_GIVEN,
-	APIConnectionError,
-	APIStatusError,
-	AsyncAnthropicBedrock,
-	RateLimitError,
+    NOT_GIVEN,
+    APIConnectionError,
+    APIStatusError,
+    AsyncAnthropicBedrock,
+    RateLimitError,
 )
 from anthropic.types import CacheControlEphemeralParam, Message, ToolParam
 from anthropic.types.text_block import TextBlock
@@ -160,10 +160,14 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 		try:
 			if output_format is None:
 				# Normal completion without structured output
+				# If we have a separate system prompt, make sure it's included as a Message
+				invoke_messages = list(anthropic_messages)
+				if system_prompt:
+					invoke_messages.insert(0, Message(role="system", content=system_prompt))
+
 				response = await self.get_client().messages.create(
 					model=self.model,
-					messages=anthropic_messages,
-					system=system_prompt or NOT_GIVEN,
+					messages=invoke_messages,
 					**self._get_client_params_for_invoke(),
 				)
 
@@ -202,11 +206,15 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 				# Force the model to use this tool
 				tool_choice = ToolChoiceToolParam(type='tool', name=tool_name)
 
+				# Ensure system prompt is included in the messages sent to the model
+				invoke_messages = list(anthropic_messages)
+				if system_prompt:
+					invoke_messages.insert(0, Message(role="system", content=system_prompt))
+
 				response = await self.get_client().messages.create(
 					model=self.model,
-					messages=anthropic_messages,
+					messages=invoke_messages,
 					tools=[tool],
-					system=system_prompt or NOT_GIVEN,
 					tool_choice=tool_choice,
 					**self._get_client_params_for_invoke(),
 				)
@@ -218,15 +226,24 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 					if hasattr(content_block, 'type') and content_block.type == 'tool_use':
 						# Parse the tool input as the structured output
 						try:
-							return ChatInvokeCompletion(completion=output_format.model_validate(content_block.input), usage=usage)
+							input_obj = content_block.input
+							# Normalize the tool input to a basic Python structure acceptable to model_validate
+							if isinstance(input_obj, str):
+								data = json.loads(input_obj)
+							elif hasattr(input_obj, "to_dict"):
+								data = input_obj.to_dict()
+							else:
+								data = input_obj
+							return ChatInvokeCompletion(completion=output_format.model_validate(data), usage=usage)
 						except Exception as e:
-							# If validation fails, try to parse it as JSON first
-							if isinstance(content_block.input, str):
-								data = json.loads(content_block.input)
-								return ChatInvokeCompletion(
-									completion=output_format.model_validate(data),
-									usage=usage,
-								)
+							# If validation fails, try a final JSON parse if we have a string
+							if isinstance(getattr(content_block, "input", None), str):
+								try:
+									data = json.loads(content_block.input)
+									return ChatInvokeCompletion(
+										completion=output_format.model_validate(data),
+										usage=usage,
+									)
 							raise e
 
 				# If no tool use block found, raise an error
