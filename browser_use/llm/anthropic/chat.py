@@ -72,7 +72,9 @@ class ChatAnthropic(BaseChatModel):
 		# Create client_params dict with non-None values and non-NotGiven values
 		client_params = {}
 		for k, v in base_params.items():
-			if v is not None and v is not NotGiven():
+			# Use the module-level NOT_GIVEN sentinel for comparison instead of
+			# constructing a fresh NotGiven() instance which will not be identical.
+			if v is not None and v is not NOT_GIVEN:
 				client_params[k] = v
 
 		return client_params
@@ -138,11 +140,14 @@ class ChatAnthropic(BaseChatModel):
 		try:
 			if output_format is None:
 				# Normal completion without structured output
+				client_invoke_params = self._get_client_params_for_invoke().copy()
+				# Only include the system prompt if it is provided; avoid passing the NOT_GIVEN sentinel
+				if system_prompt:
+					client_invoke_params['system'] = system_prompt
 				response = await self.get_client().messages.create(
 					model=self.model,
 					messages=anthropic_messages,
-					system=system_prompt or NOT_GIVEN,
-					**self._get_client_params_for_invoke(),
+					**client_invoke_params,
 				)
 
 				# Ensure we have a valid Message object before accessing attributes
@@ -188,14 +193,20 @@ class ChatAnthropic(BaseChatModel):
 				# Force the model to use this tool
 				tool_choice = ToolChoiceToolParam(type='tool', name=tool_name)
 
-				response = await self.get_client().messages.create(
-					model=self.model,
-					messages=anthropic_messages,
-					tools=[tool],
-					system=system_prompt or NOT_GIVEN,
-					tool_choice=tool_choice,
-					**self._get_client_params_for_invoke(),
-				)
+				client_invoke_params = self._get_client_params_for_invoke().copy()
+				# Only include the system prompt if it is provided; avoid passing the NOT_GIVEN sentinel
+				if system_prompt:
+					client_invoke_params['system'] = system_prompt
+				# Build call kwargs including tools and tool_choice and then the client params
+				call_kwargs = {
+					'model': self.model,
+					'messages': anthropic_messages,
+					'tools': [tool],
+					'tool_choice': tool_choice,
+				}
+				call_kwargs.update(client_invoke_params)
+
+				response = await self.get_client().messages.create(**call_kwargs)
 
 				# Ensure we have a valid Message object before accessing attributes
 				if not isinstance(response, Message):

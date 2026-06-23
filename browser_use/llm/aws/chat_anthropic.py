@@ -157,15 +157,21 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		anthropic_messages, system_prompt = AnthropicMessageSerializer.serialize_messages(messages)
 
+		# Ensure the 'system' argument passed to the client is either a str or NOT_GIVEN
+		system_arg = system_prompt if isinstance(system_prompt, str) else NOT_GIVEN
+
 		try:
 			if output_format is None:
 				# Normal completion without structured output
-				response = await self.get_client().messages.create(
-					model=self.model,
-					messages=anthropic_messages,
-					system=system_prompt or NOT_GIVEN,
-					**self._get_client_params_for_invoke(),
-				)
+				kwargs = {
+					"model": self.model,
+					"messages": anthropic_messages,
+					"system": system_arg,
+				}
+				# Merge in client params
+				kwargs.update(self._get_client_params_for_invoke())
+
+				response = await self.get_client().messages.create(**kwargs)
 
 				usage = self._get_usage(response)
 
@@ -202,14 +208,19 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 				# Force the model to use this tool
 				tool_choice = ToolChoiceToolParam(type='tool', name=tool_name)
 
-				response = await self.get_client().messages.create(
-					model=self.model,
-					messages=anthropic_messages,
-					tools=[tool],
-					system=system_prompt or NOT_GIVEN,
-					tool_choice=tool_choice,
-					**self._get_client_params_for_invoke(),
-				)
+				# Build kwargs dynamically to avoid passing potentially-incorrect typed kwargs directly
+				kwargs = {
+					"model": self.model,
+					"messages": anthropic_messages,
+					"system": system_arg,
+				}
+				# Provide tool-related fields via kwargs dictionary
+				kwargs["tools"] = [tool]
+				kwargs["tool_choice"] = tool_choice
+				# Merge in client params
+				kwargs.update(self._get_client_params_for_invoke())
+
+				response = await self.get_client().messages.create(**kwargs)
 
 				usage = self._get_usage(response)
 
