@@ -1292,9 +1292,7 @@ class BrowserSession(BaseModel):
 		# PID detection is no longer needed since we get PIDs directly from subprocesses or passed objects
 
 		if self.browser:
-			assert self.browser.is_connected(), (
-				f'Browser is not connected, did the browser process crash or get killed? (connection method: {self._connection_str})'
-			)
+			assert self.browser.is_connected(), f'Browser is not connected, did the browser process crash or get killed? (connection method: {self._connection_str})'
 			# Only log final connection if we didn't already log it via setup_browser_via_browser_pid
 			if not (hasattr(self, '_subprocess') and self._subprocess and self._subprocess.pid == self.browser_pid):
 				self.logger.debug(f'🪢 Browser {self._connection_str} connected {self.browser or self.browser_context}')
@@ -1302,9 +1300,9 @@ class BrowserSession(BaseModel):
 			# For launch_persistent_context case where we don't get a browser object
 			self.logger.debug(f'🪢 Browser context {self._connection_str} connected {self.browser_context}')
 
-		assert self.browser_context, (
-			f'{self} Failed to create a playwright BrowserContext {self.browser_context} for browser={self.browser}'
-		)
+		assert (
+			self.browser_context
+		), f'{self} Failed to create a playwright BrowserContext {self.browser_context} for browser={self.browser}'
 
 		# self.logger.debug('Setting up init scripts in browser')
 
@@ -2140,17 +2138,18 @@ class BrowserSession(BaseModel):
 				title = await self._get_page_title(page)
 				tab_info = TabInfo(page_id=page_id, url=page.url, title=title)
 			except Exception:
-
 				# page.title() can hang forever on tabs that are crashed/disappeared/about:blank
 				# but we should preserve the real URL and not mislead the LLM about tab availability
-				self.logger.debug(f'⚠️ Failed to get tab info for tab #{page_id}: {_log_pretty_url(page.url)} (using fallback title)')
-				
+				self.logger.debug(
+					f'⚠️ Failed to get tab info for tab #{page_id}: {_log_pretty_url(page.url)} (using fallback title)'
+				)
+
 				# Only mark as unusable if it's actually about:blank, otherwise preserve the real URL
 				if page.url == 'about:blank':
 					tab_info = TabInfo(page_id=page_id, url='about:blank', title='ignore this tab and do not use it')
 				else:
 					# Preserve the real URL and use a descriptive fallback title
-					fallback_title = f'(title unavailable)'
+					fallback_title = '(title unavailable)'
 					tab_info = TabInfo(page_id=page_id, url=page.url, title=fallback_title)
 
 			tabs_info.append(tab_info)
