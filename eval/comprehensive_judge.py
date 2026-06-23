@@ -19,7 +19,6 @@ from browser_use.llm.messages import (
 	BaseMessage,
 	ContentPartImageParam,
 	ContentPartTextParam,
-	ImageURL,
 	SystemMessage,
 	UserMessage,
 )
@@ -192,8 +191,9 @@ def are_images_identical(img_path1: str, img_path2: str) -> bool:
 			if img1.size != img2.size:
 				return False
 
-			# Compare pixel data
-			return list(img1.getdata()) == list(img2.getdata())
+			# Compare raw image bytes for a robust and type-friendly comparison
+			# Using tobytes() avoids typing issues with PIL's ImagingCore and is efficient
+			return img1.tobytes() == img2.tobytes()
 	except Exception as e:
 		logger.warning(f'Failed to compare images {img_path1} and {img_path2}: {e}')
 		return False
@@ -262,12 +262,13 @@ async def comprehensive_judge(
 	selected_images = filter_images(screenshot_paths, max_images)
 
 	# Encode images
-	encoded_images: list[ContentPartImageParam] = []
+	encoded_images: list[str] = []
 	for img_path in selected_images:
 		if Path(img_path).exists():
 			encoded_img = encode_image(img_path)
 			if encoded_img:
-				encoded_images.append(ContentPartImageParam(image_url=ImageURL(url=f'data:image/jpeg;base64,{encoded_img}')))
+				# store the data URL string for inclusion in the user content
+				encoded_images.append(f'data:image/jpeg;base64,{encoded_img}')
 
 	# Build error categories dynamically from enum
 	error_categories_text = ', '.join([category.value for category in ErrorCategory])

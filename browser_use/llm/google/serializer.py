@@ -1,6 +1,6 @@
 import base64
 
-from google.genai.types import Content, ContentListUnion, Part
+from google.genai.types import Part
 
 from browser_use.llm.messages import (
 	AssistantMessage,
@@ -14,26 +14,27 @@ class GoogleMessageSerializer:
 	"""Serializer for converting messages to Google Gemini format."""
 
 	@staticmethod
-	def serialize_messages(messages: list[BaseMessage]) -> tuple[ContentListUnion, str | None]:
+	def serialize_messages(messages: list[BaseMessage]) -> tuple[list[dict], str | None]:
 		"""
-		Convert a list of BaseMessages to Google format, extracting system message.
+		Convert a list of BaseMessages to a serializable Google-like format, extracting system message.
 
 		Google handles system instructions separately from the conversation, so we need to:
 		1. Extract any system messages and return them separately as a string
-		2. Convert the remaining messages to Content objects
+		2. Convert the remaining messages to a dict structure compatible with downstream use
 
 		Args:
 		    messages: List of messages to convert
 
 		Returns:
 		    A tuple of (formatted_messages, system_message) where:
-		    - formatted_messages: List of Content objects for the conversation
+		    - formatted_messages: List of dicts representing Content-like objects for the conversation
 		    - system_message: System instruction string or None
 		"""
 
 		messages = [m.model_copy(deep=True) for m in messages]
 
-		formatted_messages: ContentListUnion = []
+		# Use a plain list of dicts to avoid strict type coupling with generated google types
+		formatted_messages: list[dict] = []
 		system_message: str | None = None
 
 		for message in messages:
@@ -90,9 +91,12 @@ class GoogleMessageSerializer:
 
 						message_parts.append(image_part)
 
-			# Create the Content object
+			# Create a serializable dict representing the Content
 			if message_parts:
-				final_message = Content(role=role, parts=message_parts)
+				final_message = {
+					"role": role,
+					"parts": message_parts,
+				}
 				formatted_messages.append(final_message)
 
 		return formatted_messages, system_message

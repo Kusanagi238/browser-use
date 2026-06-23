@@ -14,7 +14,6 @@ from anthropic import (
 )
 from anthropic.types import CacheControlEphemeralParam, Message, ToolParam
 from anthropic.types.model_param import ModelParam
-from anthropic.types.text_block import TextBlock
 from anthropic.types.tool_choice_tool_param import ToolChoiceToolParam
 from httpx import Timeout
 from pydantic import BaseModel
@@ -44,7 +43,7 @@ class ChatAnthropic(BaseChatModel):
 	api_key: str | None = None
 	auth_token: str | None = None
 	base_url: str | httpx.URL | None = None
-	timeout: float | Timeout | None | NotGiven = NotGiven()
+	timeout: float | Timeout | None | NotGiven = NOT_GIVEN
 	max_retries: int = 10
 	default_headers: Mapping[str, str] | None = None
 	default_query: Mapping[str, object] | None = None
@@ -70,7 +69,8 @@ class ChatAnthropic(BaseChatModel):
 		# Create client_params dict with non-None values and non-NotGiven values
 		client_params = {}
 		for k, v in base_params.items():
-			if v is not None and v is not NotGiven():
+			# Compare against the NOT_GIVEN sentinel (singleton) rather than constructing a new NotGiven()
+			if v is not None and v is not NOT_GIVEN:
 				client_params[k] = v
 
 		return client_params
@@ -128,23 +128,30 @@ class ChatAnthropic(BaseChatModel):
 		anthropic_messages, system_prompt = AnthropicMessageSerializer.serialize_messages(messages)
 
 		try:
+			# Build base params once and only add optional keys if present to avoid passing sentinel objects
+			base_invoke_params = dict(self._get_client_params_for_invoke())
+
 			if output_format is None:
 				# Normal completion without structured output
+				invoke_params = dict(base_invoke_params)
+				if system_prompt:
+					invoke_params['system'] = system_prompt
+
 				response = await self.get_client().messages.create(
 					model=self.model,
 					messages=anthropic_messages,
-					system=system_prompt or NOT_GIVEN,
-					**self._get_client_params_for_invoke(),
+					**invoke_params,
 				)
 
 				usage = self._get_usage(response)
 
-				# Extract text from the first content block
+				# Extract text from the first content block safely (don't rely on concrete Content types)
 				first_content = response.content[0]
-				if isinstance(first_content, TextBlock):
-					response_text = first_content.text
+				text_attr = getattr(first_content, 'text', None)
+				if isinstance(text_attr, str):
+					response_text = text_attr
 				else:
-					# If it's not a text block, convert to string
+					# Fallback: stringify the content block
 					response_text = str(first_content)
 
 				return ChatInvokeCompletion(
@@ -172,31 +179,38 @@ class ChatAnthropic(BaseChatModel):
 				# Force the model to use this tool
 				tool_choice = ToolChoiceToolParam(type='tool', name=tool_name)
 
+				# Only add optional params when they are present (avoid NOT_GIVEN sentinel)
+				invoke_params = dict(base_invoke_params)
+				invoke_params['tools'] = [tool]
+				invoke_params['tool_choice'] = tool_choice
+				if system_prompt:
+					invoke_params['system'] = system_prompt
+
 				response = await self.get_client().messages.create(
 					model=self.model,
 					messages=anthropic_messages,
-					tools=[tool],
-					system=system_prompt or NOT_GIVEN,
-					tool_choice=tool_choice,
-					**self._get_client_params_for_invoke(),
+					**invoke_params,
 				)
 
 				usage = self._get_usage(response)
 
-				# Extract the tool use block
+				# Extract the tool use block, handle content safely
 				for content_block in response.content:
-					if hasattr(content_block, 'type') and content_block.type == 'tool_use':
-						# Parse the tool input as the structured output
+					if getattr(content_block, 'type', None) == 'tool_use':
+						content_input = getattr(content_block, 'input', None)
+						# Normalize the input into a Python object for validation
+						parsed_input: Any = content_input
+						if isinstance(content_input, str):
+							# Try JSON parse, otherwise keep raw string
+							try:
+								parsed_input = json.loads(content_input)
+							except Exception:
+								parsed_input = content_input
+
 						try:
-							return ChatInvokeCompletion(completion=output_format.model_validate(content_block.input), usage=usage)
+							return ChatInvokeCompletion(completion=output_format.model_validate(parsed_input), usage=usage)
 						except Exception as e:
-							# If validation fails, try to parse it as JSON first
-							if isinstance(content_block.input, str):
-								data = json.loads(content_block.input)
-								return ChatInvokeCompletion(
-									completion=output_format.model_validate(data),
-									usage=usage,
-								)
+							# Re-raise to be handled by outer exception handling after attempting JSON fallback
 							raise e
 
 				# If no tool use block found, raise an error
